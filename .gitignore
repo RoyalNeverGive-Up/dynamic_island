@@ -1,0 +1,38 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Testing & logs
+.pytest_cache/
+*.log
+error.log
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# User runtime data (personal todos, playlist paths, local settings)
+data/*.json
+data/*.txt
+!data/.gitkeep
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Temporary test files
+test_*.png
+*.tmp
