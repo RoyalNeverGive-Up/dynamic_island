@@ -7,6 +7,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QColor, QKeyEvent, QMouseEvent
 
 from config import (
+    SHADOW_MARGIN,
     COMPACT_WIDTH, COMPACT_HEIGHT, COMPACT_RADIUS,
     ALERT_WIDTH, ALERT_HEIGHT, ALERT_RADIUS,
     EXPANDED_WIDTH, EXPANDED_HEIGHT, EXPANDED_RADIUS
@@ -16,6 +17,7 @@ from ui.styles import THEME, MAIN_STYLE
 from ui.compact_island import CompactIsland
 from ui.alert_island import AlertIsland
 from ui.dashboard import Dashboard
+from ui.screen_utils import get_screen_at_point, clamp_window_to_edges
 from pomodoro_service import PomodoroService
 from system_monitor import SystemMonitor
 from music_service import MusicService
@@ -56,7 +58,7 @@ class IslandWindow(QWidget):
 
     def _init_ui(self):
         master_layout = QVBoxLayout(self)
-        master_layout.setContentsMargins(12, 12, 12, 12)
+        master_layout.setContentsMargins(SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN)
 
         self.container = QWidget(self)
         self.container.setObjectName("IslandContainer")
@@ -155,43 +157,66 @@ class IslandWindow(QWidget):
         if mode is None:
             mode = storage.get_settings().get("position_mode", "top_center")
 
-        screen = QApplication.primaryScreen().geometry()
-        margin_y = 12
+        margin = SHADOW_MARGIN
+        compact_w = COMPACT_WIDTH + 2 * margin
 
         if state == self.STATE_COMPACT:
-            w, h = COMPACT_WIDTH + 24, COMPACT_HEIGHT + 24
+            w, h = COMPACT_WIDTH + 2 * margin, COMPACT_HEIGHT + 2 * margin
         elif state == self.STATE_ALERT:
-            w, h = ALERT_WIDTH + 24, ALERT_HEIGHT + 24
+            w, h = ALERT_WIDTH + 2 * margin, ALERT_HEIGHT + 2 * margin
         else:
-            w, h = EXPANDED_WIDTH + 24, EXPANDED_HEIGHT + 24
+            w, h = EXPANDED_WIDTH + 2 * margin, EXPANDED_HEIGHT + 2 * margin
 
-        if mode == "top_left":
-            x = 40
-            y = margin_y
-        elif mode == "top_right":
-            x = screen.width() - w - 40
-            y = margin_y
-        elif mode == "custom":
+        if mode == "custom":
             settings = storage.get_settings()
-            saved_x = settings.get("custom_pos_x", -1)
-            saved_y = settings.get("custom_pos_y", margin_y)
-            if saved_x >= 0:
-                compact_w = COMPACT_WIDTH + 24
+            saved_x = settings.get("custom_pos_x")
+            saved_y = settings.get("custom_pos_y")
+            if saved_x is not None and saved_x != -1:
                 center_x = saved_x + compact_w // 2
+                center_y = saved_y + 20
+                screen = get_screen_at_point(QPoint(center_x, center_y))
+                s_geom = screen.geometry()
+                s_avail = screen.availableGeometry()
+
                 x = center_x - w // 2
                 y = saved_y
-            else:
-                x = (screen.width() - w) // 2
-                y = margin_y
-        else:
-            x = (screen.width() - w) // 2
-            y = margin_y
 
-        # Clamp safely within screen
-        max_x = max(10, screen.width() - w - 10)
-        max_y = max(10, screen.height() - h - 10)
-        x = max(10, min(max_x, x))
-        y = max(10, min(max_y, y))
+                # Clamp visual pill to screen edges (allowing 0px gap to borders)
+                min_x = s_geom.left() - margin
+                max_x = s_geom.right() + 1 - w + margin
+                min_y = s_geom.top() - margin
+                max_y = max(min_y, s_avail.bottom() + 1 - h + margin)
+
+                x = max(min_x, min(max_x, x))
+                y = max(min_y, min(max_y, y))
+                return QRect(x, y, w, h)
+
+        # Fallback or preset modes (top_center, top_left, top_right)
+        win_center = self.geometry().center()
+        screen = get_screen_at_point(win_center)
+        s_geom = screen.geometry()
+        s_avail = screen.availableGeometry()
+
+        # Preset Y: visual pill is 12px below screen top
+        preset_y = s_geom.top() + 12 - margin
+
+        if mode == "top_left":
+            x = s_geom.left() + 30 - margin
+            y = preset_y
+        elif mode == "top_right":
+            x = s_geom.right() + 1 - w - 30 + margin
+            y = preset_y
+        else:  # top_center
+            x = s_geom.left() + (s_geom.width() - w) // 2
+            y = preset_y
+
+        min_x = s_geom.left() - margin
+        max_x = s_geom.right() + 1 - w + margin
+        min_y = s_geom.top() - margin
+        max_y = max(min_y, s_avail.bottom() + 1 - h + margin)
+
+        x = max(min_x, min(max_x, x))
+        y = max(min_y, min(max_y, y))
 
         return QRect(x, y, w, h)
 
@@ -276,16 +301,29 @@ class IslandWindow(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if self.is_dragging and self.drag_position:
-            new_pos = event.globalPosition().toPoint() - self.drag_position
-            self.move(new_pos)
+            cursor_pos = event.globalPosition().toPoint()
+            new_pos = cursor_pos - self.drag_position
+            clamped_pos = clamp_window_to_edges(
+                new_pos, self.width(), self.height(), cursor_pos, snap_distance=16, strict_contain=False
+            )
+            self.move(clamped_pos)
             if storage.get_settings().get("position_mode") == "custom":
-                storage.update_setting("custom_pos_x", new_pos.x())
-                storage.update_setting("custom_pos_y", new_pos.y())
+                storage.update_setting("custom_pos_x", clamped_pos.x())
+                storage.update_setting("custom_pos_y", clamped_pos.y())
             event.accept()
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        self.is_dragging = False
+        if self.is_dragging:
+            cursor_pos = event.globalPosition().toPoint()
+            final_pos = clamp_window_to_edges(
+                self.pos(), self.width(), self.height(), cursor_pos, strict_contain=True
+            )
+            self.move(final_pos)
+            if storage.get_settings().get("position_mode") == "custom":
+                storage.update_setting("custom_pos_x", final_pos.x())
+                storage.update_setting("custom_pos_y", final_pos.y())
+            self.is_dragging = False
         super().mouseReleaseEvent(event)
 
     def enterEvent(self, event):

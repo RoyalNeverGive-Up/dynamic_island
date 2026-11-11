@@ -13,6 +13,8 @@ MEMO_FILE = DATA_DIR / "memo.txt"
 PLAYLIST_FILE = DATA_DIR / "playlist.json"
 
 # Default Island Dimensions
+SHADOW_MARGIN = 12
+
 COMPACT_WIDTH = 360
 COMPACT_HEIGHT = 42
 COMPACT_RADIUS = 21
@@ -31,8 +33,8 @@ DEFAULT_SETTINGS = {
     "sound_enabled": True,
     "autostart": False,
     "position_mode": "top_center",  # "top_center", "top_left", "top_right", "custom"
-    "custom_pos_x": -1,
-    "custom_pos_y": 10,
+    "custom_pos_x": None,
+    "custom_pos_y": None,
     "compact_show_cpu": True,
     "compact_show_time": True,
     "auto_collapse": False,

@@ -4,6 +4,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPoint
 from PyQt6.QtGui import QFont, QMouseEvent
 from storage import storage, format_repeat_display
 from ui.styles import THEME
+from ui.screen_utils import clamp_window_to_edges
 
 class CompactIsland(QWidget):
     expand_requested = pyqtSignal()
@@ -245,7 +246,8 @@ class CompactIsland(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if self._drag_start_pos and (event.buttons() & Qt.MouseButton.LeftButton):
-            delta = event.globalPosition().toPoint() - self._drag_start_pos
+            cursor_pos = event.globalPosition().toPoint()
+            delta = cursor_pos - self._drag_start_pos
             if not self._is_dragging:
                 if delta.manhattanLength() >= 5:
                     self._is_dragging = True
@@ -253,13 +255,11 @@ class CompactIsland(QWidget):
 
             if self._is_dragging:
                 win = self.window()
-                screen = QApplication.primaryScreen().geometry()
                 new_pos = self._window_start_pos + delta
-                max_x = max(10, screen.width() - win.width() - 10)
-                max_y = max(10, screen.height() - win.height() - 10)
-                target_x = max(10, min(max_x, new_pos.x()))
-                target_y = max(10, min(max_y, new_pos.y()))
-                win.move(target_x, target_y)
+                clamped_pos = clamp_window_to_edges(
+                    new_pos, win.width(), win.height(), cursor_pos, snap_distance=16, strict_contain=False
+                )
+                win.move(clamped_pos)
                 event.accept()
                 return
 
@@ -269,11 +269,16 @@ class CompactIsland(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             if self._is_dragging:
-                # Finished dragging! Save new position to custom settings and DO NOT expand
+                # Finished dragging! Ensure strictly inside active screen edges & save position
                 win = self.window()
+                cursor_pos = event.globalPosition().toPoint()
+                final_pos = clamp_window_to_edges(
+                    win.pos(), win.width(), win.height(), cursor_pos, strict_contain=True
+                )
+                win.move(final_pos)
                 storage.update_setting("position_mode", "custom")
-                storage.update_setting("custom_pos_x", win.x())
-                storage.update_setting("custom_pos_y", win.y())
+                storage.update_setting("custom_pos_x", final_pos.x())
+                storage.update_setting("custom_pos_y", final_pos.y())
                 self._is_dragging = False
                 self._drag_start_pos = None
                 event.accept()

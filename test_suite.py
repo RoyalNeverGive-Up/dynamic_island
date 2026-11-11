@@ -191,5 +191,73 @@ class TestDynamicIsland(unittest.TestCase):
         tab._on_autostart_toggled(False)
         self.assertFalse(self.storage.is_autostart_enabled())
 
+    def test_10_edge_dragging_and_snapping(self):
+        from ui.screen_utils import clamp_window_to_edges, get_screen_at_point
+        from config import SHADOW_MARGIN, COMPACT_WIDTH, COMPACT_HEIGHT
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtWidgets import QApplication
+
+        win_w = COMPACT_WIDTH + 2 * SHADOW_MARGIN
+        win_h = COMPACT_HEIGHT + 2 * SHADOW_MARGIN
+
+        for s in QApplication.screens():
+            s_geom = s.geometry()
+            center_pt = s_geom.center()
+
+            # 1. Dragging to left edge
+            intended_left = QPoint(s_geom.left() - 50, center_pt.y())
+            clamped_left = clamp_window_to_edges(intended_left, win_w, win_h, intended_left, strict_contain=True)
+            vis_left = clamped_left.x() + SHADOW_MARGIN
+            self.assertEqual(vis_left, s_geom.left(), f"Visual left should touch {s_geom.left()}")
+
+            # 2. Dragging to right edge
+            intended_right = QPoint(s_geom.right() + 50, center_pt.y())
+            clamped_right = clamp_window_to_edges(intended_right, win_w, win_h, intended_right, strict_contain=True)
+            vis_right = clamped_right.x() + win_w - SHADOW_MARGIN
+            self.assertEqual(vis_right, s_geom.right() + 1, f"Visual right should touch {s_geom.right() + 1}")
+
+            # 3. Dragging to top edge
+            intended_top = QPoint(center_pt.x(), s_geom.top() - 50)
+            clamped_top = clamp_window_to_edges(intended_top, win_w, win_h, intended_top, strict_contain=True)
+            vis_top = clamped_top.y() + SHADOW_MARGIN
+            self.assertEqual(vis_top, s_geom.top(), f"Visual top should touch {s_geom.top()}")
+
+            # 4. Dragging to bottom edge
+            intended_bot = QPoint(center_pt.x(), s_geom.bottom() + 50)
+            clamped_bot = clamp_window_to_edges(intended_bot, win_w, win_h, intended_bot, strict_contain=True)
+            vis_bot = clamped_bot.y() + win_h - SHADOW_MARGIN
+            self.assertEqual(vis_bot, s_geom.bottom() + 1, f"Visual bottom should touch {s_geom.bottom() + 1}")
+
+    def test_11_target_geometry_multi_screen(self):
+        from pomodoro_service import PomodoroService
+        from system_monitor import SystemMonitor
+        from music_service import MusicService
+        from ui.island_window import IslandWindow
+        from config import SHADOW_MARGIN, COMPACT_WIDTH, EXPANDED_WIDTH
+        from PyQt6.QtWidgets import QApplication
+
+        island = IslandWindow(PomodoroService(), SystemMonitor(), MusicService())
+
+        for s in QApplication.screens():
+            s_geom = s.geometry()
+            # Set custom position touching top-left of this screen
+            left_x = s_geom.left() - SHADOW_MARGIN
+            top_y = s_geom.top() - SHADOW_MARGIN
+            self.storage.update_setting("position_mode", "custom")
+            self.storage.update_setting("custom_pos_x", left_x)
+            self.storage.update_setting("custom_pos_y", top_y)
+
+            # Check compact geometry
+            geom_compact = island.get_target_geometry(IslandWindow.STATE_COMPACT)
+            self.assertEqual(geom_compact.x() + SHADOW_MARGIN, s_geom.left())
+            self.assertEqual(geom_compact.y() + SHADOW_MARGIN, s_geom.top())
+
+            # Check expanded geometry preserves screen boundaries
+            geom_expanded = island.get_target_geometry(IslandWindow.STATE_EXPANDED)
+            vis_expanded_left = geom_expanded.x() + SHADOW_MARGIN
+            vis_expanded_right = geom_expanded.x() + geom_expanded.width() - SHADOW_MARGIN
+            self.assertGreaterEqual(vis_expanded_left, s_geom.left())
+            self.assertLessEqual(vis_expanded_right, s_geom.right() + 1)
+
 if __name__ == "__main__":
     unittest.main()
