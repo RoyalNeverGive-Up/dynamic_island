@@ -1,6 +1,11 @@
 # bootstrap.py - Environment & Dependency Auto-Installer for Windows Dynamic Island
 import sys
 import os
+
+# Windows mixed-DPI multi-monitor stabilization
+os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "Round"
+os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+
 import subprocess
 import time
 from pathlib import Path

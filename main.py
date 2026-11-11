@@ -1,4 +1,11 @@
+import os
 import sys
+
+# Windows mixed-DPI multi-monitor stabilization
+# Prevents Qt & Windows compositor from creating a recursive DPI scaling feedback loop when dragging across screens
+os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "Round"
+os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+
 import traceback
 from datetime import datetime
 from pathlib import Path

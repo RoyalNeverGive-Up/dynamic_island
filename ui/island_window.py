@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import (
     Qt, QRect, QPropertyAnimation, QEasingCurve, QPoint, QTimer, pyqtSignal
 )
-from PyQt6.QtGui import QColor, QKeyEvent, QMouseEvent
+from PyQt6.QtGui import QColor, QKeyEvent, QMouseEvent, QResizeEvent
 
 from config import (
     SHADOW_MARGIN,
@@ -158,10 +158,15 @@ class IslandWindow(QWidget):
             mode = storage.get_settings().get("position_mode", "top_center")
 
         margin = SHADOW_MARGIN
-        compact_w = COMPACT_WIDTH + 2 * margin
+        compact_content_w = COMPACT_WIDTH
+        if hasattr(self, "compact_view") and self.compact_view:
+            hint_w = self.compact_view.sizeHint().width()
+            if hint_w > compact_content_w:
+                compact_content_w = hint_w
+        compact_w = compact_content_w + 2 * margin
 
         if state == self.STATE_COMPACT:
-            w, h = COMPACT_WIDTH + 2 * margin, COMPACT_HEIGHT + 2 * margin
+            w, h = compact_w, COMPACT_HEIGHT + 2 * margin
         elif state == self.STATE_ALERT:
             w, h = ALERT_WIDTH + 2 * margin, ALERT_HEIGHT + 2 * margin
         else:
@@ -325,6 +330,14 @@ class IslandWindow(QWidget):
                 storage.update_setting("custom_pos_y", final_pos.y())
             self.is_dragging = False
         super().mouseReleaseEvent(event)
+
+    def resizeEvent(self, event: QResizeEvent):
+        super().resizeEvent(event)
+        # Protect against runaway mixed-DPI OS scaling loops when dragging across monitors
+        if self.state == self.STATE_COMPACT and self.anim.state() != QPropertyAnimation.State.Running:
+            expected = self.get_target_geometry(self.STATE_COMPACT)
+            if self.height() != expected.height() or self.width() > expected.width() + 30 or self.width() < expected.width() - 30:
+                self.resize(expected.width(), expected.height())
 
     def enterEvent(self, event):
         self.leave_timer.stop()

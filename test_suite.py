@@ -259,5 +259,48 @@ class TestDynamicIsland(unittest.TestCase):
             self.assertGreaterEqual(vis_expanded_left, s_geom.left())
             self.assertLessEqual(vis_expanded_right, s_geom.right() + 1)
 
+    def test_12_cross_monitor_dpi_stability(self):
+        from pomodoro_service import PomodoroService
+        from system_monitor import SystemMonitor
+        from music_service import MusicService
+        from ui.island_window import IslandWindow
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import QPointF, Qt
+        from PyQt6.QtGui import QMouseEvent
+
+        island = IslandWindow(PomodoroService(), SystemMonitor(), MusicService())
+        island.show()
+        QApplication.processEvents()
+
+        compact = island.compact_view
+        press_event = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(50, 20),
+            QPointF(500, 20),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier
+        )
+        compact.mousePressEvent(press_event)
+
+        initial_w = island.width()
+        widths = []
+        for gx in range(500, -1600, -50):
+            move_event = QMouseEvent(
+                QMouseEvent.Type.MouseMove,
+                QPointF(50, 20),
+                QPointF(gx, 20),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier
+            )
+            compact.mouseMoveEvent(move_event)
+            QApplication.processEvents()
+            widths.append(island.width())
+
+        # Assert width never ballooned uncontrollably
+        self.assertLess(max(widths), initial_w + 35, f"Window ballooned to {max(widths)}!")
+        self.assertGreater(min(widths), initial_w - 35, f"Window shrank to {min(widths)}!")
+
 if __name__ == "__main__":
     unittest.main()
