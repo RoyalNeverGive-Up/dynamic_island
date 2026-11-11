@@ -4,7 +4,6 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from PyQt6.QtWidgets import QApplication
 from reminder_service import ReminderService
-from pomodoro_service import PomodoroService
 from system_monitor import SystemMonitor
 from music_service import MusicService
 from ui.island_window import IslandWindow
@@ -13,10 +12,9 @@ from storage import storage
 def test_ui():
     app = QApplication.instance() or QApplication(sys.argv)
     
-    pomodoro = PomodoroService()
     sys_mon = SystemMonitor()
     music = MusicService()
-    island = IslandWindow(pomodoro, sys_mon, music)
+    island = IslandWindow(sys_mon, music)
     
     # 1. Check compact state
     assert island.state == IslandWindow.STATE_COMPACT
@@ -27,10 +25,10 @@ def test_ui():
     assert island.state == IslandWindow.STATE_EXPANDED
     print("[OK] Expanded to dashboard successfully")
     
-    # 3. Switch dashboard tabs (now 6 tabs including Music)
-    for i in range(6):
+    # 3. Switch dashboard tabs (now 7 tabs: Todo, Alarm, Habit, Music, Monitor, Notes, Settings)
+    for i in range(7):
         island.dashboard_view.switch_tab(i)
-    print("[OK] All 6 tabs (including Music) switched successfully")
+    print("[OK] All 7 tabs switched successfully")
     
     # 4. Trigger alert
     sample_alert_todo = {

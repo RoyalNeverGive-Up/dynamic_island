@@ -18,7 +18,6 @@ from ui.compact_island import CompactIsland
 from ui.alert_island import AlertIsland
 from ui.dashboard import Dashboard
 from ui.screen_utils import get_screen_at_point, clamp_window_to_edges
-from pomodoro_service import PomodoroService
 from system_monitor import SystemMonitor
 from music_service import MusicService
 
@@ -27,9 +26,8 @@ class IslandWindow(QWidget):
     STATE_ALERT = "alert"
     STATE_EXPANDED = "expanded"
 
-    def __init__(self, pomodoro_service: PomodoroService, system_monitor: SystemMonitor, music_service: MusicService, parent=None):
+    def __init__(self, system_monitor: SystemMonitor, music_service: MusicService, parent=None):
         super().__init__(parent)
-        self.pomodoro_service = pomodoro_service
         self.system_monitor = system_monitor
         self.music_service = music_service
 
@@ -85,7 +83,7 @@ class IslandWindow(QWidget):
         self.alert_view.action_snoozed.connect(self._on_alert_action)
 
         # 3. Dashboard View
-        self.dashboard_view = Dashboard(self.pomodoro_service, self.system_monitor, self.music_service, self)
+        self.dashboard_view = Dashboard(self.system_monitor, self.music_service, self)
         self.dashboard_view.collapse_requested.connect(self.collapse_to_compact)
         self.dashboard_view.todos_changed.connect(self.compact_view.update_content)
         self.dashboard_view.reposition_requested.connect(lambda mode: self.reposition(mode, animate=True))
@@ -110,19 +108,6 @@ class IslandWindow(QWidget):
         self.leave_timer.timeout.connect(self._on_auto_collapse)
 
     def _setup_service_connections(self):
-        # Pomodoro updates
-        self.pomodoro_service.tick.connect(
-            lambda rem, tot, mode: self.compact_view.set_pomodoro_status(rem, tot, mode, self.pomodoro_service.is_running)
-        )
-        self.pomodoro_service.state_changed.connect(
-            lambda running: self.compact_view.set_pomodoro_status(
-                self.pomodoro_service.remaining_seconds,
-                self.pomodoro_service.total_seconds,
-                self.pomodoro_service.current_mode,
-                running
-            )
-        )
-
         # System monitor updates
         self.system_monitor.stats_updated.connect(
             lambda stats: self.compact_view.set_cpu_stat(stats.get("cpu", 0.0))
@@ -283,6 +268,10 @@ class IslandWindow(QWidget):
             self._active_reminder_dlg = None
         self.compact_view.update_content()
         self.dashboard_view.todo_tab.load_todos()
+        if hasattr(self.dashboard_view, "alarm_tab"):
+            self.dashboard_view.alarm_tab.load_alarms()
+        if hasattr(self.dashboard_view, "habit_tab"):
+            self.dashboard_view.habit_tab.load_habits()
         self.collapse_to_compact()
 
     def reposition(self, mode: str, animate: bool = True):

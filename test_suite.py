@@ -14,7 +14,6 @@ from storage import (
     StorageManager, calculate_next_occurrence, format_repeat_display, parse_natural_time
 )
 from config import REPEAT_NONE, REPEAT_DAILY, REPEAT_WEEKLY, REPEAT_WORKDAY
-from pomodoro_service import PomodoroService
 from system_monitor import SystemMonitor
 from music_service import MusicService
 from ui.tabs.todo_edit_dialog import TodoEditDialog
@@ -60,7 +59,7 @@ class TestDynamicIsland(unittest.TestCase):
         todos = self.storage.get_todos()
         self.assertFalse(any(t["id"] == new_todo["id"] for t in todos))
 
-    def test_02_weekly_recurring_reminder(self):
+    def test_02_alarm_checkin_and_snooze(self):
         now = datetime(2026, 11, 10, 14, 0) # Tuesday
         # Tuesday is weekday 2
         # Next occurrence of Wednesday (3) at 10:00 should be tomorrow (Nov 11 10:00)
@@ -71,26 +70,36 @@ class TestDynamicIsland(unittest.TestCase):
         next_mon = calculate_next_occurrence(REPEAT_WEEKLY, [1], "09:30", base_dt=now)
         self.assertEqual(next_mon, "2026-11-16 09:30")
 
-        # Create a weekly recurring todo
-        rec_todo = self.storage.add_todo(
-            title="每周三下午开会",
+        # 1. Add Alarm
+        alarm = self.storage.add_alarm(
+            title="每周三下午例会 🚀",
+            time="15:00",
             repeat_type=REPEAT_WEEKLY,
             repeat_days=[3],
-            repeat_time="15:00"
+            enabled=True
         )
-        self.assertEqual(rec_todo["repeat_type"], REPEAT_WEEKLY)
-        self.assertIn("🔁 每周三 15:00", format_repeat_display(rec_todo))
+        self.assertIsNotNone(alarm["id"])
+        self.assertEqual(alarm["repeat_type"], REPEAT_WEEKLY)
+        self.assertTrue(alarm["enabled"])
 
-        # Toggling a recurring task should roll it forward to the next scheduled date
-        old_due = rec_todo["due_time"]
-        self.storage.toggle_todo(rec_todo["id"])
-        todos = self.storage.get_todos()
-        t = next(x for x in todos if x["id"] == rec_todo["id"])
-        # Should not be completed forever, should stay pending with updated due_time!
-        self.assertFalse(t["completed"])
-        self.assertIsNotNone(t["due_time"])
+        # 2. Check-in Mechanism
+        checked = self.storage.checkin_alarm(alarm["id"])
+        self.assertIsNotNone(checked)
+        self.assertEqual(checked["checkin_count"], 1)
+        self.assertIsNotNone(checked["last_checkin_at"])
 
-        self.storage.delete_todo(rec_todo["id"])
+        # 3. Snooze / Delay Mechanism
+        snoozed = self.storage.snooze_alarm(alarm["id"], minutes=15)
+        self.assertIsNotNone(snoozed)
+        self.assertIsNotNone(snoozed["snooze_until"])
+
+        # 4. Cancel Snooze
+        cancelled = self.storage.cancel_alarm_snooze(alarm["id"])
+        self.assertTrue(cancelled)
+
+        # 5. Delete Alarm
+        deleted = self.storage.delete_alarm(alarm["id"])
+        self.assertTrue(deleted)
 
     def test_03_music_service(self):
         music = MusicService()
@@ -106,17 +115,32 @@ class TestDynamicIsland(unittest.TestCase):
         new_mode = music.toggle_mode()
         self.assertNotEqual(init_mode, new_mode)
 
-    def test_04_pomodoro_service(self):
-        service = PomodoroService()
-        self.assertEqual(service.current_mode, PomodoroService.MODE_WORK)
-        service.start()
-        self.assertTrue(service.is_running)
-        service.pause()
-        self.assertFalse(service.is_running)
+    def test_04_habit_interval_and_custom_duration(self):
+        # 1. Add Habit (e.g. Water drinking 09:00 ~ 18:00, default 45 mins)
+        h = self.storage.add_habit(
+            title="定时喝水打卡 💧",
+            start_time="09:00",
+            end_time="18:00",
+            default_interval=45,
+            target_count=8
+        )
+        self.assertIsNotNone(h["id"])
+        self.assertEqual(h["target_count"], 8)
 
-        service.set_mode(PomodoroService.MODE_SHORT_BREAK)
-        self.assertEqual(service.current_mode, PomodoroService.MODE_SHORT_BREAK)
-        self.assertEqual(service.remaining_seconds, 5 * 60)
+        # 2. Check-in with user custom choice: 30 minutes
+        c1 = self.storage.checkin_habit(h["id"], next_interval_minutes=30)
+        self.assertEqual(c1["today_count"], 1)
+
+        # 3. Check-in with 60 minutes
+        c2 = self.storage.checkin_habit(h["id"], next_interval_minutes=60)
+        self.assertEqual(c2["today_count"], 2)
+
+        # 4. Snooze Habit
+        s = self.storage.snooze_habit(h["id"], minutes=15)
+        self.assertIsNotNone(s["snooze_until"])
+
+        # 5. Delete Habit
+        self.assertTrue(self.storage.delete_habit(h["id"]))
 
     def test_05_system_monitor(self):
         monitor = SystemMonitor()
@@ -206,37 +230,36 @@ class TestDynamicIsland(unittest.TestCase):
 
             # 1. Dragging to left edge
             intended_left = QPoint(s_geom.left() - 50, center_pt.y())
-            clamped_left = clamp_window_to_edges(intended_left, win_w, win_h, intended_left, strict_contain=True)
+            clamped_left = clamp_window_to_edges(intended_left, win_w, win_h, center_pt, strict_contain=True)
             vis_left = clamped_left.x() + SHADOW_MARGIN
             self.assertEqual(vis_left, s_geom.left(), f"Visual left should touch {s_geom.left()}")
 
             # 2. Dragging to right edge
             intended_right = QPoint(s_geom.right() + 50, center_pt.y())
-            clamped_right = clamp_window_to_edges(intended_right, win_w, win_h, intended_right, strict_contain=True)
+            clamped_right = clamp_window_to_edges(intended_right, win_w, win_h, center_pt, strict_contain=True)
             vis_right = clamped_right.x() + win_w - SHADOW_MARGIN
             self.assertEqual(vis_right, s_geom.right() + 1, f"Visual right should touch {s_geom.right() + 1}")
 
             # 3. Dragging to top edge
             intended_top = QPoint(center_pt.x(), s_geom.top() - 50)
-            clamped_top = clamp_window_to_edges(intended_top, win_w, win_h, intended_top, strict_contain=True)
+            clamped_top = clamp_window_to_edges(intended_top, win_w, win_h, center_pt, strict_contain=True)
             vis_top = clamped_top.y() + SHADOW_MARGIN
             self.assertEqual(vis_top, s_geom.top(), f"Visual top should touch {s_geom.top()}")
 
             # 4. Dragging to bottom edge
             intended_bot = QPoint(center_pt.x(), s_geom.bottom() + 50)
-            clamped_bot = clamp_window_to_edges(intended_bot, win_w, win_h, intended_bot, strict_contain=True)
+            clamped_bot = clamp_window_to_edges(intended_bot, win_w, win_h, center_pt, strict_contain=True)
             vis_bot = clamped_bot.y() + win_h - SHADOW_MARGIN
             self.assertEqual(vis_bot, s_geom.bottom() + 1, f"Visual bottom should touch {s_geom.bottom() + 1}")
 
     def test_11_target_geometry_multi_screen(self):
-        from pomodoro_service import PomodoroService
         from system_monitor import SystemMonitor
         from music_service import MusicService
         from ui.island_window import IslandWindow
         from config import SHADOW_MARGIN, COMPACT_WIDTH, EXPANDED_WIDTH
         from PyQt6.QtWidgets import QApplication
 
-        island = IslandWindow(PomodoroService(), SystemMonitor(), MusicService())
+        island = IslandWindow(SystemMonitor(), MusicService())
 
         for s in QApplication.screens():
             s_geom = s.geometry()
@@ -260,7 +283,6 @@ class TestDynamicIsland(unittest.TestCase):
             self.assertLessEqual(vis_expanded_right, s_geom.right() + 1)
 
     def test_12_cross_monitor_dpi_stability(self):
-        from pomodoro_service import PomodoroService
         from system_monitor import SystemMonitor
         from music_service import MusicService
         from ui.island_window import IslandWindow
@@ -268,7 +290,7 @@ class TestDynamicIsland(unittest.TestCase):
         from PyQt6.QtCore import QPointF, Qt
         from PyQt6.QtGui import QMouseEvent
 
-        island = IslandWindow(PomodoroService(), SystemMonitor(), MusicService())
+        island = IslandWindow(SystemMonitor(), MusicService())
         island.show()
         QApplication.processEvents()
 
@@ -359,6 +381,63 @@ class TestDynamicIsland(unittest.TestCase):
         # Empty search results
         tab.search_edit.clear()
         self.assertEqual(tab.search_filter, "")
+
+    def test_14_dialog_dragging(self):
+        from ui.tabs.habit_edit_dialog import HabitEditDialog
+        from ui.tabs.alarm_edit_dialog import AlarmEditDialog
+        from ui.tabs.todo_edit_dialog import TodoEditDialog
+        from PyQt6.QtCore import QPointF, QPoint, Qt
+        from PyQt6.QtGui import QMouseEvent
+
+        dialogs = [
+            HabitEditDialog({"title": "喝水", "start_time": "09:00", "end_time": "18:00", "default_interval": 45, "target_count": 8}),
+            AlarmEditDialog({"title": "起床闹钟", "time": "07:30", "repeat_type": "daily", "repeat_days": [1,2,3,4,5,6,7]}),
+            TodoEditDialog({"title": "待办测试", "due_time": "2026-11-12 10:00"})
+        ]
+
+        for dlg in dialogs:
+            dlg.show()
+            QApplication.processEvents()
+            init_pos = dlg.pos()
+
+            # Simulate mouse press at global (200, 200)
+            press_evt = QMouseEvent(
+                QMouseEvent.Type.MouseButtonPress,
+                QPointF(50, 30),
+                QPointF(init_pos.x() + 50, init_pos.y() + 30),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier
+            )
+            dlg.mousePressEvent(press_evt)
+
+            # Simulate mouse move dragging by (80, 60)
+            move_evt = QMouseEvent(
+                QMouseEvent.Type.MouseMove,
+                QPointF(130, 90),
+                QPointF(init_pos.x() + 130, init_pos.y() + 90),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier
+            )
+            dlg.mouseMoveEvent(move_evt)
+
+            new_pos = dlg.pos()
+            self.assertEqual(new_pos.x() - init_pos.x(), 80, f"{dlg.__class__.__name__} failed X-drag")
+            self.assertEqual(new_pos.y() - init_pos.y(), 60, f"{dlg.__class__.__name__} failed Y-drag")
+
+            # Mouse release
+            release_evt = QMouseEvent(
+                QMouseEvent.Type.MouseButtonRelease,
+                QPointF(130, 90),
+                QPointF(init_pos.x() + 130, init_pos.y() + 90),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier
+            )
+            dlg.mouseReleaseEvent(release_evt)
+            self.assertIsNone(dlg._drag_pos)
+            dlg.close()
 
 if __name__ == "__main__":
     unittest.main()

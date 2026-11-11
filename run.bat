@@ -122,15 +122,11 @@ if errorlevel 1 (
 if "%1"=="--debug" goto :run_debug
 if "%1"=="--console" goto :run_debug
 
-:: Normal launch: detached background execution using start
-start "" "%~dp0.venv\Scripts\python.exe" "%~dp0main.py"
+:: Normal launch: detached background execution with pythonw.exe (zero console box in taskbar)
+set "PY_RUNNER=%~dp0.venv\Scripts\pythonw.exe"
+if not exist "%PY_RUNNER%" set "PY_RUNNER=%~dp0.venv\Scripts\python.exe"
 
-echo ================================================================
-echo  Windows Dynamic Island has started in the background.
-echo  Pill is floating at the top center of your primary screen.
-echo ================================================================
-echo This window will close in 2 seconds...
-ping 127.0.0.1 -n 2 >nul 2>&1
+start "" "%PY_RUNNER%" "%~dp0main.pyw"
 exit /b 0
 
 :run_debug

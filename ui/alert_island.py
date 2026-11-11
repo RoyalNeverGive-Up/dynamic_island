@@ -1,17 +1,19 @@
+# ui/alert_island.py - Dynamic Island Alert Banner Supporting Todos and Recurring Alarms
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from storage import storage
 from ui.styles import THEME
 from ui.components.icons import make_close_icon
 
+
 class AlertIsland(QWidget):
-    action_completed = pyqtSignal(str)   # todo_id
-    action_snoozed = pyqtSignal(str)     # todo_id
+    action_completed = pyqtSignal(str)   # item_id
+    action_snoozed = pyqtSignal(str)     # item_id
     action_dismissed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.current_todo = None
+        self.current_payload = None
 
         self._init_ui()
 
@@ -26,7 +28,7 @@ class AlertIsland(QWidget):
         layout.setContentsMargins(16, 8, 16, 8)
         layout.setSpacing(12)
 
-        # Bell Icon
+        # Icon Label
         self.bell_label = QLabel("🔔")
         self.bell_label.setStyleSheet("font-size: 24px; background: transparent;")
         layout.addWidget(self.bell_label)
@@ -36,7 +38,7 @@ class AlertIsland(QWidget):
         center_layout.setSpacing(2)
         center_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
-        self.tag_label = QLabel("⏰ 待办到期提醒")
+        self.tag_label = QLabel("⏰ 到期提醒")
         self.tag_label.setStyleSheet(f"""
             color: {THEME['accent_orange']};
             font-size: 11px;
@@ -45,7 +47,7 @@ class AlertIsland(QWidget):
         """)
         center_layout.addWidget(self.tag_label)
 
-        self.title_label = QLabel("代办内容...")
+        self.title_label = QLabel("提醒内容...")
         self.title_label.setStyleSheet(f"""
             color: {THEME['text_primary']};
             font-size: 13px;
@@ -82,28 +84,71 @@ class AlertIsland(QWidget):
 
         layout.addLayout(btn_layout)
 
-    def trigger_alert(self, todo: dict):
-        self.current_todo = todo
-        title = todo.get("title", "")
+    def trigger_alert(self, payload: dict):
+        self.current_payload = payload
+        item_type = payload.get("type", "todo")
+        title = payload.get("title", "")
+        time_str = payload.get("time", "")
+
         if len(title) > 20:
             title = title[:19] + "..."
-        due = todo.get("due_time", "").split(" ")[-1]
-        self.title_label.setText(f"{title} ({due})")
+
+        if item_type == "habit":
+            self.bell_label.setText("💧")
+            self.tag_label.setText("💧 习惯提醒 · 定时喝水")
+            self.tag_label.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 700; background: transparent;")
+            self.done_btn.setText("💧 喝了一杯")
+            self.snooze_btn.setText("稍后 15分")
+        elif item_type == "alarm":
+            self.bell_label.setText("⏰")
+            self.tag_label.setText("⏰ 周期闹钟响铃")
+            self.tag_label.setStyleSheet("color: #34D399; font-size: 11px; font-weight: 700; background: transparent;")
+            self.done_btn.setText("🎯 打卡完成")
+            self.snooze_btn.setText("稍后 5分")
+        else:
+            self.bell_label.setText("🔔")
+            self.tag_label.setText("📋 待办到期提醒")
+            self.tag_label.setStyleSheet(f"color: {THEME['accent_orange']}; font-size: 11px; font-weight: 700; background: transparent;")
+            self.done_btn.setText("✓ 完成")
+            self.snooze_btn.setText("稍后 5分")
+
+        suffix = f" ({time_str})" if time_str else ""
+        self.title_label.setText(f"{title}{suffix}")
         self.auto_dismiss_timer.start()
 
     def _on_done(self):
         self.auto_dismiss_timer.stop()
-        if self.current_todo:
-            todo_id = self.current_todo["id"]
-            storage.toggle_todo(todo_id)
-            self.action_completed.emit(todo_id)
+        if not self.current_payload:
+            return
+
+        item_type = self.current_payload.get("type", "todo")
+        item_id = self.current_payload.get("id")
+
+        if item_type == "habit":
+            storage.checkin_habit(item_id)
+        elif item_type == "alarm":
+            storage.checkin_alarm(item_id)
+        else:
+            storage.toggle_todo(item_id)
+
+        self.action_completed.emit(item_id)
 
     def _on_snooze(self):
         self.auto_dismiss_timer.stop()
-        if self.current_todo:
-            todo_id = self.current_todo["id"]
-            storage.snooze_todo(todo_id, minutes=5)
-            self.action_snoozed.emit(todo_id)
+        if not self.current_payload:
+            return
+
+        item_type = self.current_payload.get("type", "todo")
+        item_id = self.current_payload.get("id")
+
+        if item_type == "habit":
+            storage.snooze_habit(item_id, minutes=15)
+        elif item_type == "alarm":
+            storage.snooze_alarm(item_id, minutes=5)
+        else:
+            storage.snooze_todo(item_id, minutes=5)
+
+        self.action_snoozed.emit(item_id)
 
     def _on_close(self):
         self.auto_dismiss_timer.stop()

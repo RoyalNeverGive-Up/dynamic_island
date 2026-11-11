@@ -14,8 +14,6 @@ class CompactIsland(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.pomodoro_text = ""
-        self.pomodoro_running = False
         self.cpu_pct = 0.0
 
         # Music status
@@ -49,7 +47,7 @@ class CompactIsland(QWidget):
         """)
         layout.addWidget(self.clock_pill)
 
-        # 2. Dynamic Status Icon (Music / Pomodoro / Task)
+        # 2. Dynamic Status Icon (Music / Habit / Alarm / Task)
         self.icon_label = QLabel("📋")
         self.icon_label.setStyleSheet("font-size: 14px; background: transparent;")
         layout.addWidget(self.icon_label)
@@ -135,13 +133,6 @@ class CompactIsland(QWidget):
 
         self.update_content()
 
-    def set_pomodoro_status(self, remaining_secs: int, total_secs: int, mode_name: str, is_running: bool):
-        self.pomodoro_running = is_running
-        mins = remaining_secs // 60
-        secs = remaining_secs % 60
-        self.pomodoro_text = f"🍅 {mins:02d}:{secs:02d} ({mode_name})"
-        self.update_content()
-
     def set_music_status(self, is_playing: bool, track_title: str):
         self.music_playing = is_playing
         self.music_title = track_title
@@ -206,13 +197,36 @@ class CompactIsland(QWidget):
             self.ticker_label.setText(f"<span style='color: #38BDF8; font-weight: bold;'>正在播放:</span> {title}")
             return
 
-        # 2. If Pomodoro is active, display countdown
-        if self.pomodoro_running and self.pomodoro_text:
-            self.icon_label.setText("🍅")
-            self.ticker_label.setText(f"<span style='color: #FB923C; font-weight: bold;'>{self.pomodoro_text}</span>")
+        # 2. Check for active habit reminder (e.g. water drinking)
+        next_habit = storage.get_next_habit()
+        if next_habit and next_habit.get("next_trigger"):
+            h_time = next_habit["next_trigger"].split(" ")[-1]
+            now_h = now.strftime("%H:%M")
+            if next_habit.get("start_time", "09:00") <= now_h <= next_habit.get("end_time", "18:00"):
+                cnt = next_habit.get("today_count", 0)
+                tgt = next_habit.get("target_count", 8)
+                self.icon_label.setText("💧")
+                self.ticker_label.setText(
+                    f"<span style='color: #38BDF8; font-weight: bold;'>💧 喝水: {cnt}/{tgt}杯</span> "
+                    f"<span style='color: #94A3B8; font-size: 11px;'>下次 {h_time}</span>"
+                )
+                return
+
+        # 3. Check for active snoozed alarm or urgent alarm
+        next_alarm = storage.get_next_alarm()
+        if next_alarm and next_alarm.get("snooze_until"):
+            self.icon_label.setText("⏳")
+            s_time = next_alarm["snooze_until"].split(" ")[-1]
+            title = next_alarm.get("title", "")
+            if len(title) > 13:
+                title = title[:12] + "..."
+            self.ticker_label.setText(
+                f"<span style='color: #FBBF24; font-weight: bold; background: rgba(251, 191, 36, 0.2); padding: 1px 5px; border-radius: 4px;'>延时至 {s_time}</span> "
+                f"<span style='color: #FFFFFF;'>{title}</span>"
+            )
             return
 
-        # 3. Next pending task (with high contrast time highlight)
+        # 4. Next pending task (with high contrast time highlight)
         next_todo = storage.get_next_pending()
         if next_todo:
             self.icon_label.setText("📋")
@@ -221,13 +235,20 @@ class CompactIsland(QWidget):
                 t_str = next_todo['due_time'].split(' ')[-1]
                 time_part = f"<span style='color: #FBBF24; font-weight: bold; background: rgba(251, 191, 36, 0.2); padding: 1px 5px; border-radius: 4px;'>{t_str}</span> "
 
-            rep_text = format_repeat_display(next_todo)
-            rep_part = f"<span style='color: #34D399; font-size: 11px;'> {rep_text}</span>" if rep_text else ""
-
             title = next_todo.get("title", "")
             if len(title) > 14:
                 title = title[:13] + "..."
-            self.ticker_label.setText(f"{time_part}<span style='color: #FFFFFF;'>{title}</span>{rep_part}")
+            self.ticker_label.setText(f"{time_part}<span style='color: #FFFFFF;'>{title}</span>")
+        elif next_alarm and next_alarm.get("next_trigger"):
+            self.icon_label.setText("⏰")
+            trig_time = next_alarm["next_trigger"].split(" ")[-1]
+            title = next_alarm.get("title", "")
+            if len(title) > 13:
+                title = title[:12] + "..."
+            self.ticker_label.setText(
+                f"<span style='color: #38BDF8; font-weight: bold; background: rgba(56, 189, 248, 0.2); padding: 1px 5px; border-radius: 4px;'>闹钟 {trig_time}</span> "
+                f"<span style='color: #FFFFFF;'>{title}</span>"
+            )
         else:
             self.icon_label.setText("✨")
             self.ticker_label.setText("<span style='color: #34D399; font-weight: bold;'>今日待办已全部完成！</span>")

@@ -152,10 +152,14 @@ class TodoEditDialog(QDialog):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        if hasattr(self, "_drag_pos") and event.buttons() == Qt.MouseButton.LeftButton:
+        if getattr(self, "_drag_pos", None) and event.buttons() == Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             event.accept()
         super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
     def _save(self):
         title = self.title_input.text().strip()

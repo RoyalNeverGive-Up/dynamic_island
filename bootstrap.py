@@ -193,9 +193,14 @@ def main():
         if "--check-only" in sys.argv:
             sys.exit(0)
 
-        # If launched directly without run.bat, execute main.py
-        main_file = BASE_DIR / "main.py"
-        subprocess.run([sys.executable, str(main_file)] + sys.argv[1:])
+        # If launched directly without run.bat, execute main.pyw
+        main_file = BASE_DIR / "main.pyw"
+        python_exe = sys.executable
+        if "--debug" not in sys.argv and "--console" not in sys.argv:
+            candidate_pyw = Path(sys.executable).parent / "pythonw.exe"
+            if candidate_pyw.exists():
+                python_exe = str(candidate_pyw)
+        subprocess.run([python_exe, str(main_file)] + sys.argv[1:])
         sys.exit(0)
 
     except SystemExit:

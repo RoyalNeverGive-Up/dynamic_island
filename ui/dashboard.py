@@ -7,12 +7,12 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from ui.styles import THEME
 from ui.components.icons import make_pin_icon, make_collapse_icon
 from ui.tabs.todo_tab import TodoTab
+from ui.tabs.alarm_tab import AlarmTab
+from ui.tabs.habit_tab import HabitTab
 from ui.tabs.music_tab import MusicTab
-from ui.tabs.pomodoro_tab import PomodoroTab
 from ui.tabs.system_tab import SystemTab
 from ui.tabs.memo_tab import MemoTab
 from ui.tabs.settings_tab import SettingsTab
-from pomodoro_service import PomodoroService
 from system_monitor import SystemMonitor
 from music_service import MusicService
 
@@ -21,9 +21,8 @@ class Dashboard(QWidget):
     todos_changed = pyqtSignal()
     reposition_requested = pyqtSignal(str)
 
-    def __init__(self, pomodoro_service: PomodoroService, system_monitor: SystemMonitor, music_service: MusicService, parent=None):
+    def __init__(self, system_monitor: SystemMonitor, music_service: MusicService, parent=None):
         super().__init__(parent)
-        self.pomodoro_service = pomodoro_service
         self.system_monitor = system_monitor
         self.music_service = music_service
         self.is_pinned = False
@@ -108,11 +107,12 @@ class Dashboard(QWidget):
         self.nav_buttons = []
         tabs_info = [
             ("📋 待办", 0),
-            ("🎵 音乐", 1),
-            ("🍅 专注", 2),
-            ("⚡ 监控", 3),
-            ("📝 便签", 4),
-            ("⚙️ 设置", 5),
+            ("⏰ 闹钟", 1),
+            ("💧 习惯", 2),
+            ("🎵 音乐", 3),
+            ("⚡ 监控", 4),
+            ("📝 便签", 5),
+            ("⚙️ 设置", 6),
         ]
 
         for text, idx in tabs_info:
@@ -128,28 +128,34 @@ class Dashboard(QWidget):
         # 3. Stacked Pages
         self.stack = QStackedWidget()
 
-        # Tab 0: Todo
+        # Tab 0: Todo (Pure Tasks)
         self.todo_tab = TodoTab()
         self.todo_tab.todos_changed.connect(self.todos_changed.emit)
         self.stack.addWidget(self.todo_tab)
 
-        # Tab 1: Music
+        # Tab 1: Alarm (Recurring Alarms, Check-in, Snooze)
+        self.alarm_tab = AlarmTab()
+        self.alarm_tab.alarms_changed.connect(self.todos_changed.emit)
+        self.stack.addWidget(self.alarm_tab)
+
+        # Tab 2: Habit (Interval Reminders: Water, Stretch, Health)
+        self.habit_tab = HabitTab()
+        self.habit_tab.habits_changed.connect(self.todos_changed.emit)
+        self.stack.addWidget(self.habit_tab)
+
+        # Tab 3: Music
         self.music_tab = MusicTab(self.music_service)
         self.stack.addWidget(self.music_tab)
 
-        # Tab 2: Pomodoro
-        self.pomodoro_tab = PomodoroTab(self.pomodoro_service)
-        self.stack.addWidget(self.pomodoro_tab)
-
-        # Tab 3: System
+        # Tab 4: System
         self.system_tab = SystemTab(self.system_monitor)
         self.stack.addWidget(self.system_tab)
 
-        # Tab 4: Memo
+        # Tab 5: Memo
         self.memo_tab = MemoTab()
         self.stack.addWidget(self.memo_tab)
 
-        # Tab 5: Settings
+        # Tab 6: Settings
         self.settings_tab = SettingsTab()
         self.settings_tab.reposition_requested.connect(self.reposition_requested.emit)
         self.settings_tab.settings_changed.connect(self.todos_changed.emit)

@@ -8,6 +8,8 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 TODOS_FILE = DATA_DIR / "todos.json"
+ALARMS_FILE = DATA_DIR / "alarms.json"
+HABITS_FILE = DATA_DIR / "habits.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 MEMO_FILE = DATA_DIR / "memo.txt"
 PLAYLIST_FILE = DATA_DIR / "playlist.json"

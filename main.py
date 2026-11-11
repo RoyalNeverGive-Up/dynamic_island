@@ -6,6 +6,14 @@ import sys
 os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "Round"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
+# Windows silent background execution: detach console window so no prompt box stays in taskbar
+if sys.platform == "win32" and "--debug" not in sys.argv and "--console" not in sys.argv:
+    try:
+        import ctypes
+        ctypes.windll.kernel32.FreeConsole()
+    except Exception:
+        pass
+
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -81,7 +89,6 @@ from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen
 from config import DEFAULT_SETTINGS
 from storage import storage
 from reminder_service import ReminderService
-from pomodoro_service import PomodoroService
 from system_monitor import SystemMonitor
 from music_service import MusicService
 from ui.island_window import IslandWindow
@@ -132,13 +139,12 @@ def main():
         app.setApplicationName("Windows 灵动岛")
 
         # Initialize Services
-        pomodoro_service = PomodoroService()
         system_monitor = SystemMonitor()
         reminder_service = ReminderService()
         music_service = MusicService()
 
         # Create Island Window
-        island = IslandWindow(pomodoro_service, system_monitor, music_service)
+        island = IslandWindow(system_monitor, music_service)
         island.show()
 
         # Connect Reminder Engine to Island Alert Banner
@@ -146,7 +152,7 @@ def main():
 
         # System Tray Integration
         tray_icon = QSystemTrayIcon(create_tray_icon(), app)
-        tray_icon.setToolTip("Windows 灵动岛 · 待办、音乐与灵动中心")
+        tray_icon.setToolTip("Windows 灵动岛 · 待办、闹钟、喝水与音乐")
 
         tray_menu = QMenu()
 
@@ -168,8 +174,17 @@ def main():
         action_add = tray_menu.addAction("➕ 快速添加待办...")
         action_add.triggered.connect(quick_add_todo)
 
-        action_pomo = tray_menu.addAction("🍅 切换番茄钟 (开始/暂停)")
-        action_pomo.triggered.connect(pomodoro_service.toggle)
+        def quick_drink():
+            habits = storage.get_habits()
+            water_h = next((h for h in habits if "水" in h.get("title", "")), habits[0] if habits else None)
+            if water_h:
+                storage.checkin_habit(water_h["id"])
+                island.compact_view.update_content()
+                if hasattr(island.dashboard_view, "habit_tab"):
+                    island.dashboard_view.habit_tab.load_habits()
+
+        action_drink = tray_menu.addAction("💧 快速喝水打卡 (+1)")
+        action_drink.triggered.connect(quick_drink)
 
         action_music = tray_menu.addAction("🎵 切换音乐 (播放/暂停)")
         action_music.triggered.connect(music_service.toggle_play)
@@ -211,7 +226,7 @@ def main():
         # Show balloon notification on first startup
         tray_icon.showMessage(
             "Windows 灵动岛已启动",
-            "悬浮于屏幕顶部，支持待办、每周提醒、本地音乐播放与专注时钟！",
+            "悬浮于屏幕顶部，支持纯粹待办、周期闹钟、定时喝水与本地音乐！",
             QSystemTrayIcon.MessageIcon.Information,
             3000
         )
