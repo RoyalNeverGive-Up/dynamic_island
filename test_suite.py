@@ -302,5 +302,63 @@ class TestDynamicIsland(unittest.TestCase):
         self.assertLess(max(widths), initial_w + 35, f"Window ballooned to {max(widths)}!")
         self.assertGreater(min(widths), initial_w - 35, f"Window shrank to {min(widths)}!")
 
+    def test_13_music_player_enhancements(self):
+        from music_service import MusicService
+        from ui.tabs.music_tab import MusicTab, ClickableSlider, VinylWidget, AudioWaveWidget
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import Qt, QPointF
+        from PyQt6.QtGui import QMouseEvent
+
+        music = MusicService()
+        music.set_volume(80)
+
+        # 1. Test mute toggle & restoration
+        is_muted = music.toggle_mute()
+        self.assertTrue(is_muted)
+        self.assertEqual(music.get_volume(), 0)
+
+        unmuted = music.toggle_mute()
+        self.assertFalse(unmuted)
+        self.assertEqual(music.get_volume(), 80)
+
+        # 2. Test Tab UI components
+        tab = MusicTab(music)
+        self.assertIsInstance(tab.vinyl, VinylWidget)
+        self.assertIsInstance(tab.card_wave, AudioWaveWidget)
+        self.assertIsInstance(tab.progress_slider, ClickableSlider)
+
+        # 3. Test Vinyl & Wave state switching
+        tab.vinyl.set_playing(True)
+        self.assertTrue(tab.vinyl.is_playing)
+        tab.vinyl.set_playing(False)
+        self.assertFalse(tab.vinyl.is_playing)
+
+        tab.card_wave.set_playing(True)
+        self.assertTrue(tab.card_wave.is_playing)
+        tab.card_wave.set_playing(False)
+        self.assertFalse(tab.card_wave.is_playing)
+
+        # 4. Test ClickableSlider click-to-seek
+        slider = ClickableSlider(Qt.Orientation.Horizontal)
+        slider.setRange(0, 1000)
+        slider.resize(200, 20)
+        click_evt = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(100, 10),
+            QPointF(100, 10),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier
+        )
+        slider.mousePressEvent(click_evt)
+        self.assertAlmostEqual(slider.value(), 500, delta=10)
+
+        # 5. Test Playlist search filtering
+        tab.search_edit.setText("non_existent_random_song_xyz_123")
+        self.assertEqual(tab.search_filter, "non_existent_random_song_xyz_123")
+        # Empty search results
+        tab.search_edit.clear()
+        self.assertEqual(tab.search_filter, "")
+
 if __name__ == "__main__":
     unittest.main()

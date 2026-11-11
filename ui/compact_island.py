@@ -5,6 +5,7 @@ from PyQt6.QtGui import QFont, QMouseEvent
 from storage import storage, format_repeat_display
 from ui.styles import THEME
 from ui.screen_utils import clamp_window_to_edges
+from ui.components.icons import make_play_icon, make_pause_icon
 
 class CompactIsland(QWidget):
     expand_requested = pyqtSignal()
@@ -145,7 +146,9 @@ class CompactIsland(QWidget):
         self.music_playing = is_playing
         self.music_title = track_title
         self.mini_play_btn.setVisible(bool(track_title))
-        self.mini_play_btn.setText("⏸" if is_playing else "▶")
+        self.mini_play_btn.setIcon(make_pause_icon(10, "#FFFFFF") if is_playing else make_play_icon(11, "#FFFFFF"))
+        self.mini_play_btn.setText("")
+        self.mini_play_btn.setToolTip(f"{'点击暂停' if is_playing else '点击播放'}: {track_title}")
         self.update_content()
 
     def set_cpu_stat(self, cpu_pct: float):

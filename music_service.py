@@ -80,6 +80,21 @@ class MusicService(QObject):
     def get_volume(self) -> int:
         return int(self.audio_output.volume() * 100)
 
+    def toggle_mute(self) -> bool:
+        """Toggle mute state and return True if currently muted."""
+        cur = self.get_volume()
+        if cur > 0:
+            self._pre_mute_volume = cur
+            self.set_volume(0)
+            return True
+        else:
+            restore = getattr(self, "_pre_mute_volume", 70)
+            self.set_volume(restore if restore > 0 else 70)
+            return False
+
+    def is_muted(self) -> bool:
+        return self.get_volume() == 0
+
     def toggle_mode(self) -> str:
         self.mode_index = (self.mode_index + 1) % len(self.MODES)
         mode = self.MODES[self.mode_index]

@@ -281,6 +281,24 @@ QFrame#TaskCard:hover {{
     border-color: rgba(255, 255, 255, 0.14);
 }}
 
+/* Music Player Cards */
+QFrame#MusicPlayerCard {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(26, 32, 48, 0.95), stop:1 rgba(14, 18, 28, 0.95));
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: 16px;
+}}
+
+QFrame#ActiveTrackCard {{
+    background-color: rgba(14, 165, 233, 0.16);
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    border-left: 4px solid #38BDF8;
+    border-radius: 10px;
+}}
+QFrame#ActiveTrackCard:hover {{
+    background-color: rgba(14, 165, 233, 0.25);
+    border-color: #38BDF8;
+}}
+
 /* Slider */
 QSlider::groove:horizontal {{
     height: 4px;
