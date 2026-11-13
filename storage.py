@@ -369,7 +369,9 @@ class StorageManager:
             return False
 
     def add_todo(self, title: str, description: str = "", priority: str = "medium",
-                 category: str = "工作", due_time: str = "", reminder_enabled: bool = True) -> Dict[str, Any]:
+                 category: str = "工作", due_time: str = "", reminder_enabled: bool = True,
+                 repeat_type: str = REPEAT_NONE, repeat_days: Optional[List[int]] = None,
+                 repeat_time: str = "") -> Dict[str, Any]:
         todos = self.get_todos()
         now = datetime.now()
 
@@ -381,9 +383,9 @@ class StorageManager:
             "category": category,
             "due_time": due_time.strip(),
             "reminder_enabled": reminder_enabled if due_time.strip() else False,
-            "repeat_type": REPEAT_NONE,
-            "repeat_days": [],
-            "repeat_time": "",
+            "repeat_type": repeat_type or REPEAT_NONE,
+            "repeat_days": repeat_days if repeat_days is not None else [],
+            "repeat_time": repeat_time.strip() if repeat_time else "",
             "reminded": False,
             "completed": False,
             "created_at": now.strftime("%Y-%m-%d %H:%M:%S"),
