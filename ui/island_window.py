@@ -272,6 +272,10 @@ class IslandWindow(QWidget):
         self._active_reminder_dlg.activateWindow()
 
     def _on_alert_action(self, todo_id: str = ""):
+        # Cancel alert banner auto_dismiss_timer so it doesn't fire auto_snooze after user handled popup!
+        if hasattr(self, "alert_view") and self.alert_view:
+            self.alert_view.auto_dismiss_timer.stop()
+
         if hasattr(self, "_active_reminder_dlg") and self._active_reminder_dlg:
             try:
                 self._active_reminder_dlg.close()
@@ -298,13 +302,34 @@ class IslandWindow(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            settings = storage.get_settings()
-            # Only allow window dragging when in COMPACT capsule mode to prevent mis-dragging during dashboard interaction
-            if self.state == self.STATE_COMPACT:
+            # Allow dragging in COMPACT mode anywhere on capsule
+            # In EXPANDED mode, allow dragging exclusively on the top header bar (Y < 75px)
+            can_drag = (self.state == self.STATE_COMPACT) or (self.state == self.STATE_EXPANDED and event.position().y() <= 75)
+            if can_drag:
                 self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 self.is_dragging = True
                 event.accept()
+                return
         super().mousePressEvent(event)
+
+    def _save_dragged_position(self, final_pos: QPoint):
+        margin = SHADOW_MARGIN
+        compact_h = COMPACT_HEIGHT + 2 * margin
+        screen = get_screen_at_point(QPoint(final_pos.x() + margin + 10, final_pos.y() + margin + 10))
+        s_geom = screen.geometry()
+
+        save_x = final_pos.x()
+        save_y = final_pos.y()
+
+        # If user dragged the EXPANDED window and its bottom is in the lower half of screen,
+        # convert the saved Y back to the compact capsule anchor (capsule bottom matches window bottom)
+        if self.state == self.STATE_EXPANDED:
+            if (final_pos.y() + self.height()) > (s_geom.top() + s_geom.height() // 2):
+                save_y = final_pos.y() + self.height() - compact_h
+
+        storage.update_setting("position_mode", "custom")
+        storage.update_setting("custom_pos_x", save_x)
+        storage.update_setting("custom_pos_y", save_y)
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if self.is_dragging and self.drag_position:
@@ -314,10 +339,9 @@ class IslandWindow(QWidget):
                 new_pos, self.width(), self.height(), cursor_pos, snap_distance=16, strict_contain=False
             )
             self.move(clamped_pos)
-            if storage.get_settings().get("position_mode") == "custom":
-                storage.update_setting("custom_pos_x", clamped_pos.x())
-                storage.update_setting("custom_pos_y", clamped_pos.y())
+            self._save_dragged_position(clamped_pos)
             event.accept()
+            return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
@@ -327,10 +351,10 @@ class IslandWindow(QWidget):
                 self.pos(), self.width(), self.height(), cursor_pos, strict_contain=True
             )
             self.move(final_pos)
-            if storage.get_settings().get("position_mode") == "custom":
-                storage.update_setting("custom_pos_x", final_pos.x())
-                storage.update_setting("custom_pos_y", final_pos.y())
+            self._save_dragged_position(final_pos)
             self.is_dragging = False
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
 
     def resizeEvent(self, event: QResizeEvent):

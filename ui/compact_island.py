@@ -199,15 +199,26 @@ class CompactIsland(QWidget):
 
         # 2. Check for active habit reminder (e.g. water drinking)
         next_habit = storage.get_next_habit()
-        if next_habit and next_habit.get("next_trigger"):
-            h_time = next_habit["next_trigger"].split(" ")[-1]
-            now_h = now.strftime("%H:%M")
-            if next_habit.get("start_time", "09:00") <= now_h <= next_habit.get("end_time", "18:00"):
+        if next_habit:
+            # If habit has an active snooze, prioritize showing snooze countdown!
+            if next_habit.get("snooze_until"):
+                s_time = next_habit["snooze_until"].split(" ")[-1]
+                title = next_habit.get("title", "喝水打卡")
+                self.icon_label.setText("⏳")
+                self.ticker_label.setText(
+                    f"<span style='color: #FBBF24; font-weight: bold; background: rgba(251, 191, 36, 0.2); padding: 1px 5px; border-radius: 4px;'>延时至 {s_time}</span> "
+                    f"<span style='color: #FFFFFF;'>{title}</span>"
+                )
+                return
+            elif next_habit.get("next_trigger"):
+                h_time = next_habit["next_trigger"].split(" ")[-1]
+                title = next_habit.get("title", "喝水打卡")
                 cnt = next_habit.get("today_count", 0)
                 tgt = next_habit.get("target_count", 8)
-                self.icon_label.setText("💧")
+                icon_char = "💧" if "水" in title else "🚶"
+                self.icon_label.setText(icon_char)
                 self.ticker_label.setText(
-                    f"<span style='color: #38BDF8; font-weight: bold;'>💧 喝水: {cnt}/{tgt}杯</span> "
+                    f"<span style='color: #38BDF8; font-weight: bold;'>{icon_char} {title}: {cnt}/{tgt}次</span> "
                     f"<span style='color: #94A3B8; font-size: 11px;'>下次 {h_time}</span>"
                 )
                 return
