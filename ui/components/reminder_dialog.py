@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGraphicsDropShadowEffect, QApplication
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QColor, QMouseEvent
 from config import PRIORITY_CONFIG
 from storage import storage, format_alarm_repeat
@@ -43,6 +43,13 @@ class ReminderDialog(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         self._init_ui()
+
+        # Auto collapse timer: if user doesn't interact within 1 minute (60s), auto snooze 2 mins and collapse
+        self.auto_dismiss_timer = QTimer(self)
+        self.auto_dismiss_timer.setSingleShot(True)
+        self.auto_dismiss_timer.setInterval(60000)
+        self.auto_dismiss_timer.timeout.connect(self._on_auto_timeout)
+        self.auto_dismiss_timer.start()
 
         # Position on primary screen
         screen = QApplication.primaryScreen().geometry()
@@ -276,13 +283,28 @@ class ReminderDialog(QDialog):
         self._drag_pos = None
         super().mouseReleaseEvent(event)
 
+    def _on_auto_timeout(self):
+        """Auto dismiss after 1 minute of inactivity: snooze for 2 minutes and close."""
+        item_id = self.item_data.get("id")
+        if item_id:
+            if self.is_habit:
+                storage.snooze_habit(item_id, minutes=2)
+            elif self.is_alarm:
+                storage.snooze_alarm(item_id, minutes=2)
+            else:
+                storage.snooze_todo(item_id, minutes=2)
+            self.action_snoozed.emit(item_id)
+        self.reject()
+
     def _on_habit_checked(self, minutes: int):
+        self.auto_dismiss_timer.stop()
         item_id = self.item_data["id"]
         storage.checkin_habit(item_id, next_interval_minutes=minutes)
         self.action_completed.emit(item_id)
         self.accept()
 
     def _on_done(self):
+        self.auto_dismiss_timer.stop()
         item_id = self.item_data["id"]
         if self.is_alarm:
             storage.checkin_alarm(item_id)
@@ -292,6 +314,7 @@ class ReminderDialog(QDialog):
         self.accept()
 
     def _on_snooze(self):
+        self.auto_dismiss_timer.stop()
         item_id = self.item_data["id"]
         if self.is_alarm:
             storage.snooze_alarm(item_id, minutes=5)
@@ -301,5 +324,6 @@ class ReminderDialog(QDialog):
         self.accept()
 
     def _on_dismiss(self):
+        self.auto_dismiss_timer.stop()
         self.action_dismissed.emit()
         self.reject()

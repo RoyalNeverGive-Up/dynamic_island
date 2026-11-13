@@ -15,11 +15,81 @@ class ReminderService(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._start_time = datetime.now()
         self._last_alerted_alarm_keys = set()  # (alarm_id, minute_str)
+        self._catchup_overdue_on_startup()
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self._check_reminders)
         self.timer.start()
+
+    def _catchup_overdue_on_startup(self):
+        """
+        When the application launches, do not fire overdue alarms/habits immediately.
+        Instead, roll overdue recurring alarms and interval habits forward to their
+        next legitimate occurrence from startup time, so reminders only trigger going forward.
+        """
+        now = self._start_time
+        # 1. Alarms: if next_trigger is already in the past, roll forward to next cycle
+        alarms = storage.get_alarms()
+        alarms_modified = False
+        for a in alarms:
+            trig_str = a.get("next_trigger")
+            if trig_str:
+                try:
+                    dt = datetime.strptime(trig_str, "%Y-%m-%d %H:%M")
+                    if dt < now:
+                        new_t = calculate_next_occurrence(
+                            a.get("repeat_type", "weekly"),
+                            a.get("repeat_days", []),
+                            a.get("time", "09:30"),
+                            now
+                        )
+                        a["next_trigger"] = new_t
+                        a["snooze_until"] = None
+                        alarms_modified = True
+                except Exception:
+                    pass
+        if alarms_modified:
+            storage.save_alarms(alarms)
+
+        # 2. Habits: calculate fresh next_trigger starting from now
+        habits = storage.get_habits()
+        habits_modified = False
+        for h in habits:
+            trig_str = h.get("next_trigger")
+            if trig_str:
+                try:
+                    dt = datetime.strptime(trig_str, "%Y-%m-%d %H:%M")
+                    if dt < now:
+                        next_dt = storage._calculate_next_habit_time(
+                            h.get("start_time", "09:00"),
+                            h.get("end_time", "18:00"),
+                            h.get("default_interval", 45),
+                            now
+                        )
+                        h["next_trigger"] = next_dt.strftime("%Y-%m-%d %H:%M") if next_dt else None
+                        h["snooze_until"] = None
+                        habits_modified = True
+                except Exception:
+                    pass
+        if habits_modified:
+            storage.save_habits(habits)
+
+        # 3. Mark old already-past one-off todos as reminded so they don't ring on launch
+        todos = storage.get_todos()
+        todos_modified = False
+        for t in todos:
+            if t.get("reminder_enabled") and not t.get("completed") and not t.get("reminded") and t.get("due_time"):
+                try:
+                    due_dt = datetime.strptime(t["due_time"], "%Y-%m-%d %H:%M")
+                    if due_dt < now:
+                        t["reminded"] = True
+                        todos_modified = True
+                except Exception:
+                    pass
+        if todos_modified:
+            storage.save_todos(todos)
 
     def _play_chime(self):
         settings = storage.get_settings()

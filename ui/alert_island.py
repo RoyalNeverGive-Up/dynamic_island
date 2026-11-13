@@ -17,10 +17,10 @@ class AlertIsland(QWidget):
 
         self._init_ui()
 
-        # Auto collapse timer (15 seconds)
+        # Auto collapse timer (60 seconds): if user doesn't interact within 1 min, auto-snooze 2 mins and collapse
         self.auto_dismiss_timer = QTimer(self)
         self.auto_dismiss_timer.setSingleShot(True)
-        self.auto_dismiss_timer.setInterval(15000)
+        self.auto_dismiss_timer.setInterval(60000)
         self.auto_dismiss_timer.timeout.connect(self._on_auto_dismiss)
 
     def _init_ui(self):
@@ -155,4 +155,16 @@ class AlertIsland(QWidget):
         self.action_dismissed.emit()
 
     def _on_auto_dismiss(self):
-        self.action_dismissed.emit()
+        """Auto dismiss after 1 minute of inactivity: snooze for 2 minutes and collapse."""
+        if self.current_payload:
+            item_type = self.current_payload.get("type", "todo")
+            item_id = self.current_payload.get("id")
+            if item_type == "habit":
+                storage.snooze_habit(item_id, minutes=2)
+            elif item_type == "alarm":
+                storage.snooze_alarm(item_id, minutes=2)
+            else:
+                storage.snooze_todo(item_id, minutes=2)
+            self.action_snoozed.emit(item_id)
+        else:
+            self.action_dismissed.emit()

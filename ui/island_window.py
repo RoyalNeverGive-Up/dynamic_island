@@ -1,10 +1,10 @@
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QGraphicsDropShadowEffect, QApplication
+    QWidget, QVBoxLayout, QGraphicsDropShadowEffect, QApplication, QDialog
 )
 from PyQt6.QtCore import (
     Qt, QRect, QPropertyAnimation, QEasingCurve, QPoint, QTimer, pyqtSignal
 )
-from PyQt6.QtGui import QColor, QKeyEvent, QMouseEvent, QResizeEvent
+from PyQt6.QtGui import QColor, QKeyEvent, QMouseEvent, QResizeEvent, QCursor
 
 from config import (
     SHADOW_MARGIN,
@@ -162,16 +162,24 @@ class IslandWindow(QWidget):
             saved_x = settings.get("custom_pos_x")
             saved_y = settings.get("custom_pos_y")
             if saved_x is not None and saved_x != -1:
-                center_x = saved_x + compact_w // 2
-                center_y = saved_y + 20
-                screen = get_screen_at_point(QPoint(center_x, center_y))
+                screen = get_screen_at_point(QPoint(saved_x + margin + 10, saved_y + margin + 10))
                 s_geom = screen.geometry()
                 s_avail = screen.availableGeometry()
 
-                x = center_x - w // 2
-                y = saved_y
+                compact_h = COMPACT_HEIGHT + 2 * margin
 
-                # Clamp visual pill to screen edges (allowing 0px gap to borders)
+                # Anchor horizontally to saved_x
+                x = saved_x
+
+                # Vertical positioning:
+                # If placed in the bottom half of the screen, expand upward from the capsule's bottom edge!
+                # This ensures the capsule stays firmly in place without jumping to the top of screen.
+                if saved_y > s_geom.top() + s_geom.height() // 2 and state != self.STATE_COMPACT:
+                    y = saved_y + compact_h - h
+                else:
+                    y = saved_y
+
+                # Clamp visual window to stay strictly within active screen boundaries
                 min_x = s_geom.left() - margin
                 max_x = s_geom.right() + 1 - w + margin
                 min_y = s_geom.top() - margin
@@ -228,12 +236,16 @@ class IslandWindow(QWidget):
         self.morph_to(self.STATE_EXPANDED)
 
     def collapse_to_compact(self):
+        # If user is interacting with an active reminder popup dialog, do not forcefully kill it
         if hasattr(self, "_active_reminder_dlg") and self._active_reminder_dlg:
-            try:
-                self._active_reminder_dlg.close()
-            except Exception:
-                pass
-            self._active_reminder_dlg = None
+            if not self._active_reminder_dlg.isVisible():
+                self._active_reminder_dlg = None
+            else:
+                # Dialog is still being interacted with by user; only morph main island back to compact
+                self.compact_view.update_content()
+                self.morph_to(self.STATE_COMPACT)
+                return
+
         self.compact_view.update_content()
         self.morph_to(self.STATE_COMPACT)
 
@@ -287,7 +299,8 @@ class IslandWindow(QWidget):
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
             settings = storage.get_settings()
-            if settings.get("position_mode") == "custom" or self.state == self.STATE_COMPACT:
+            # Only allow window dragging when in COMPACT capsule mode to prevent mis-dragging during dashboard interaction
+            if self.state == self.STATE_COMPACT:
                 self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 self.is_dragging = True
                 event.accept()
@@ -332,16 +345,33 @@ class IslandWindow(QWidget):
         self.leave_timer.stop()
         super().enterEvent(event)
 
+    def _is_cursor_over_island_or_dialogs(self) -> bool:
+        cursor_pos = QCursor.pos()
+        for w in QApplication.topLevelWidgets():
+            if w.isVisible() and w.frameGeometry().contains(cursor_pos):
+                return True
+        return False
+
+    def _has_visible_dialogs(self) -> bool:
+        for w in QApplication.topLevelWidgets():
+            if isinstance(w, QDialog) and w.isVisible():
+                return True
+        return False
+
     def leaveEvent(self, event):
         settings = storage.get_settings()
         if (self.state == self.STATE_EXPANDED
                 and settings.get("auto_collapse", False)
                 and not self.dashboard_view.is_pinned):
-            self.leave_timer.start()
+            # If an edit dialog or reminder popup is open, or cursor is still on an island dialog, do not collapse
+            if not self._has_visible_dialogs() and not self._is_cursor_over_island_or_dialogs():
+                self.leave_timer.start()
         super().leaveEvent(event)
 
     def _on_auto_collapse(self):
         if self.state == self.STATE_EXPANDED and not self.dashboard_view.is_pinned:
+            if self._has_visible_dialogs() or self._is_cursor_over_island_or_dialogs():
+                return
             self.collapse_to_compact()
 
     def keyPressEvent(self, event: QKeyEvent):
