@@ -6,6 +6,29 @@ import sys
 os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "Round"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
+def ensure_interactive_desktop():
+    """
+    Ensure this process's main GUI thread is attached to the user's interactive
+    'Default' desktop in 'WinSta0' so windows and system tray icons appear on
+    the actual user's desktop taskbar.
+    """
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            u32 = ctypes.windll.user32
+            k32 = ctypes.windll.kernel32
+            hdesk_cur = u32.GetThreadDesktop(k32.GetCurrentThreadId())
+            buf = ctypes.create_unicode_buffer(256)
+            u32.GetUserObjectInformationW(hdesk_cur, 2, buf, 256, None)  # UOI_NAME = 2
+            if buf.value.lower() != "default":
+                hdesk = u32.OpenDesktopW("Default", 0, False, 0x01FF)
+                if hdesk:
+                    u32.SetThreadDesktop(hdesk)
+        except Exception:
+            pass
+
+ensure_interactive_desktop()
+
 # Windows silent background execution: detach console window so no prompt box stays in taskbar
 if sys.platform == "win32" and "--debug" not in sys.argv and "--console" not in sys.argv:
     try:
@@ -94,26 +117,28 @@ from music_service import MusicService
 from ui.island_window import IslandWindow
 
 def create_tray_icon() -> QIcon:
-    """Generate a crisp, dynamic-island pill icon programmatically."""
+    """Generate a high-contrast, crisp Dynamic Island icon for the Windows taskbar tray."""
     pixmap = QPixmap(64, 64)
     pixmap.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-    # Outer pill
-    painter.setBrush(QBrush(QColor(18, 20, 28)))
-    painter.setPen(QPen(QColor(10, 132, 255), 3))
-    painter.drawRoundedRect(4, 16, 56, 32, 16, 16)
+    # Outer pill capsule with vibrant cyan border and solid dark background
+    from PyQt6.QtCore import QRect
+    pill_rect = QRect(2, 12, 60, 40)
+    painter.setBrush(QBrush(QColor(15, 23, 42)))
+    painter.setPen(QPen(QColor(56, 189, 248), 4))
+    painter.drawRoundedRect(pill_rect, 20, 20)
 
-    # Center glowing dot (island camera / sensor cue)
-    painter.setBrush(QBrush(QColor(48, 209, 88)))
+    # Left indicator: bright emerald green
+    painter.setBrush(QBrush(QColor(52, 211, 153)))
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawEllipse(16, 26, 12, 12)
+    painter.drawEllipse(14, 25, 14, 14)
 
-    # Right indicator
-    painter.setBrush(QBrush(QColor(255, 159, 10)))
-    painter.drawEllipse(36, 26, 12, 12)
+    # Right indicator: bright amber orange
+    painter.setBrush(QBrush(QColor(251, 191, 36)))
+    painter.drawEllipse(36, 25, 14, 14)
 
     painter.end()
     return QIcon(pixmap)
@@ -133,6 +158,7 @@ def hide_console():
 
 def main():
     try:
+        ensure_interactive_desktop()
         hide_console()
         app = QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(False)  # Keep running in system tray
@@ -165,11 +191,17 @@ def main():
         tray_menu.addSeparator()
 
         def quick_add_todo():
-            title, ok = QInputDialog.getText(None, "快速添加待办", "请输入待办任务标题:")
-            if ok and title.strip():
-                storage.add_todo(title=title.strip(), category="工作")
-                island.compact_view.update_content()
-                island.dashboard_view.todo_tab.load_todos()
+            dlg = QInputDialog(island)
+            dlg.setWindowFlags(dlg.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+            dlg.setWindowTitle("快速添加待办")
+            dlg.setLabelText("请输入待办任务标题:")
+            dlg.setTextValue("")
+            if dlg.exec() == QInputDialog.DialogCode.Accepted:
+                title = dlg.textValue().strip()
+                if title:
+                    storage.add_todo(title=title, category="工作")
+                    island.compact_view.update_content()
+                    island.dashboard_view.todo_tab.load_todos()
 
         action_add = tray_menu.addAction("➕ 快速添加待办...")
         action_add.triggered.connect(quick_add_todo)

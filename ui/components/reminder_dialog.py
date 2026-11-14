@@ -1,12 +1,12 @@
 # ui/components/reminder_dialog.py - Floating Notification for Todos, Alarms, and Habits
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QGraphicsDropShadowEffect, QApplication
+    QFrame, QGraphicsDropShadowEffect, QApplication, QSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QColor, QMouseEvent
 from config import PRIORITY_CONFIG
-from storage import storage, format_alarm_repeat
+from storage import storage, format_alarm_repeat, get_habit_presentation
 from ui.styles import THEME, MAIN_STYLE
 from ui.components.icons import make_close_icon
 
@@ -25,8 +25,9 @@ class ReminderDialog(QDialog):
         self.item_data = payload.get("habit") or payload.get("alarm") or payload.get("todo") or payload
 
         if self.is_habit:
-            self.setWindowTitle("健康习惯提醒")
-            self.setFixedSize(450, 330)
+            self.habit_info = get_habit_presentation(self.item_data)
+            self.setWindowTitle(f"健康习惯 · {self.habit_info.get('title', '习惯打卡')}")
+            self.setFixedSize(480, 380)
         elif self.is_alarm:
             self.setWindowTitle("闹钟响铃")
             self.setFixedSize(430, 300)
@@ -62,8 +63,9 @@ class ReminderDialog(QDialog):
         outer_layout.setContentsMargins(12, 12, 12, 12)
 
         if self.is_habit:
-            theme_color = "#38BDF8"
-            glow_color = QColor(56, 189, 248, 120)
+            theme_color = self.habit_info.get("color", "#38BDF8")
+            qc = QColor(theme_color)
+            glow_color = QColor(qc.red(), qc.green(), qc.blue(), 120)
         elif self.is_alarm:
             theme_color = "#34D399"
             glow_color = QColor(52, 211, 153, 110)
@@ -94,17 +96,19 @@ class ReminderDialog(QDialog):
         header = QHBoxLayout()
         header.setSpacing(8)
 
-        icon_char = "💧" if self.is_habit else ("⏰" if self.is_alarm else "🔔")
+        if self.is_habit:
+            icon_char = self.habit_info.get("icon", "🎯")
+            title_text = f"循环习惯 · {self.habit_info.get('title', '习惯打卡')}"
+        elif self.is_alarm:
+            icon_char = "⏰"
+            title_text = "周期闹钟响铃 · 灵动打卡"
+        else:
+            icon_char = "🔔"
+            title_text = "待办到期提醒 · 灵动通知"
+
         icon_lbl = QLabel(icon_char)
         icon_lbl.setStyleSheet("font-size: 20px;")
         header.addWidget(icon_lbl)
-
-        if self.is_habit:
-            title_text = "循环习惯 · 定时喝水打卡"
-        elif self.is_alarm:
-            title_text = "周期闹钟响铃 · 灵动打卡"
-        else:
-            title_text = "待办到期提醒 · 灵动通知"
 
         alert_title = QLabel(title_text)
         alert_title.setStyleSheet(f"""
@@ -145,8 +149,10 @@ class ReminderDialog(QDialog):
         if self.is_habit:
             cnt = self.item_data.get("today_count", 0)
             tgt = self.item_data.get("target_count", 8)
-            h_badge = QLabel(f"💧 今日已完成: {cnt} / {tgt} 杯")
-            h_badge.setStyleSheet("color: #38BDF8; background: rgba(56, 189, 248, 0.15); font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 5px;")
+            unit = self.habit_info.get("unit", "次")
+            icon = self.habit_info.get("icon", "🎯")
+            h_badge = QLabel(f"{icon} 今日已完成: {cnt} / {tgt} {unit}")
+            h_badge.setStyleSheet(f"color: {theme_color}; background: rgba(56, 189, 248, 0.15); font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 5px;")
             badge_row.addWidget(h_badge)
 
             time_range = f"活跃时段: {self.item_data.get('start_time', '09:00')} ~ {self.item_data.get('end_time', '18:00')}"
@@ -191,8 +197,10 @@ class ReminderDialog(QDialog):
         # 3. Actions Row
         if self.is_habit:
             # Custom prompt: let user choose when to trigger next
-            choice_lbl = QLabel("请选择下一次提醒时间 (同时记录喝水 +1 杯):")
-            choice_lbl.setStyleSheet("font-size: 12px; font-weight: 600; color: #38BDF8; margin-top: 2px;")
+            unit = self.habit_info.get("unit", "次")
+            icon = self.habit_info.get("icon", "🎯")
+            choice_lbl = QLabel(f"请选择下一次提醒时间 (同时记录打卡 +1 {unit}):")
+            choice_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {theme_color}; margin-top: 2px;")
             layout.addWidget(choice_lbl)
 
             btn_grid = QHBoxLayout()
@@ -205,27 +213,120 @@ class ReminderDialog(QDialog):
                 ("90分后", 90),
             ]
             for lbl, mins in intervals:
-                btn = QPushButton(f"💧 {lbl}")
+                btn = QPushButton(f"{icon} {lbl}")
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background: rgba(56, 189, 248, 0.2);
-                        color: #38BDF8;
-                        border: 1px solid rgba(56, 189, 248, 0.4);
-                        border-radius: 6px;
-                        padding: 6px 4px;
-                        font-size: 11px;
+                btn.setFixedHeight(34)
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: rgba(56, 189, 248, 0.15);
+                        color: {theme_color};
+                        border: 1px solid rgba(56, 189, 248, 0.35);
+                        border-radius: 7px;
+                        padding: 6px 8px;
+                        font-size: 12px;
                         font-weight: 700;
-                    }
-                    QPushButton:hover {
-                        background: #38BDF8;
+                    }}
+                    QPushButton:hover {{
+                        background: {theme_color};
                         color: #000000;
-                    }
+                    }}
                 """)
                 btn.clicked.connect(lambda chk, m=mins: self._on_habit_checked(m))
                 btn_grid.addWidget(btn)
 
+            # Custom Interval Button
+            custom_btn = QPushButton("⚙️ 自定义...")
+            custom_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            custom_btn.setFixedHeight(34)
+            custom_btn.setToolTip("输入任意自定义分钟后再次提醒")
+            custom_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: rgba(255, 255, 255, 0.08);
+                    color: #E2E8F0;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    border-radius: 7px;
+                    padding: 6px 8px;
+                    font-size: 12px;
+                    font-weight: 700;
+                }}
+                QPushButton:hover {{
+                    background: rgba(255, 255, 255, 0.18);
+                    color: #FFFFFF;
+                }}
+            """)
+            custom_btn.clicked.connect(self._toggle_custom_input)
+            btn_grid.addWidget(custom_btn)
+
             layout.addLayout(btn_grid)
+
+            # Custom Interval Inline Box (initially hidden)
+            self.custom_row = QFrame()
+            self.custom_row.setVisible(False)
+            self.custom_row.setStyleSheet(f"""
+                QFrame {{
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1.5px solid rgba(56, 189, 248, 0.45);
+                    border-radius: 9px;
+                }}
+            """)
+            c_layout = QHBoxLayout(self.custom_row)
+            c_layout.setContentsMargins(10, 6, 10, 6)
+            c_layout.setSpacing(10)
+
+            c_lbl = QLabel("自定义下次间隔:")
+            c_lbl.setStyleSheet("color: #E2E8F0; font-size: 12px; font-weight: 700; background: transparent; border: none;")
+            c_layout.addWidget(c_lbl)
+
+            self.custom_spin = QSpinBox()
+            self.custom_spin.setRange(1, 720)
+            self.custom_spin.setValue(self.item_data.get("default_interval", 30))
+            self.custom_spin.setSuffix("  分钟后")
+            self.custom_spin.setFixedHeight(34)
+            self.custom_spin.setMinimumWidth(120)
+            self.custom_spin.setStyleSheet(f"""
+                QSpinBox {{
+                    background: #1A1D27;
+                    color: #FFFFFF;
+                    border: 1.5px solid {theme_color};
+                    border-radius: 6px;
+                    padding: 4px 10px;
+                    font-size: 13px;
+                    font-weight: 800;
+                }}
+                QSpinBox::up-button, QSpinBox::down-button {{
+                    width: 20px;
+                }}
+            """)
+            c_layout.addWidget(self.custom_spin, 1)
+
+            c_ok_btn = QPushButton("✓ 确定打卡")
+            c_ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            c_ok_btn.setFixedHeight(34)
+            c_ok_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {theme_color};
+                    color: #000000;
+                    font-weight: 800;
+                    font-size: 12px;
+                    border-radius: 6px;
+                    padding: 6px 16px;
+                    border: none;
+                }}
+                QPushButton:hover {{
+                    opacity: 0.9;
+                }}
+            """)
+            c_ok_btn.clicked.connect(self._on_custom_confirmed)
+            c_layout.addWidget(c_ok_btn)
+
+            c_close_btn = QPushButton("✕")
+            c_close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            c_close_btn.setFixedSize(30, 30)
+            c_close_btn.setStyleSheet("color: #94A3B8; background: transparent; border: none; font-size: 14px; font-weight: bold;")
+            c_close_btn.clicked.connect(lambda: self.custom_row.setVisible(False))
+            c_layout.addWidget(c_close_btn)
+
+            layout.addWidget(self.custom_row)
 
             sub_row = QHBoxLayout()
             sub_row.addStretch()
@@ -295,6 +396,18 @@ class ReminderDialog(QDialog):
                 storage.snooze_todo(item_id, minutes=2)
             self.action_snoozed.emit(item_id)
         self.reject()
+
+    def _toggle_custom_input(self):
+        self.auto_dismiss_timer.stop()
+        is_vis = not self.custom_row.isVisible()
+        self.custom_row.setVisible(is_vis)
+        if is_vis:
+            self.custom_spin.setFocus()
+            self.custom_spin.selectAll()
+
+    def _on_custom_confirmed(self):
+        mins = self.custom_spin.value()
+        self._on_habit_checked(mins)
 
     def _on_habit_checked(self, minutes: int):
         self.auto_dismiss_timer.stop()

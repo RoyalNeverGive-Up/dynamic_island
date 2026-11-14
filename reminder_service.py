@@ -111,33 +111,36 @@ class ReminderService(QObject):
 
         # 1. Check Alarms (Recurring alarms & active snoozes)
         alarms = storage.get_alarms()
+        alarm_candidates = []
         for alarm in alarms:
             if not alarm.get("enabled", True):
                 continue
-
             target_trigger = alarm.get("snooze_until") or alarm.get("next_trigger")
             if not target_trigger:
                 continue
+            try:
+                trig_dt = datetime.strptime(target_trigger, "%Y-%m-%d %H:%M")
+                alarm_candidates.append((trig_dt, target_trigger, alarm))
+            except Exception:
+                pass
 
+        alarm_candidates.sort(key=lambda x: x[0])
+        for trig_dt, target_trigger, alarm in alarm_candidates:
             alarm_key = (alarm["id"], target_trigger)
             if alarm_key in self._last_alerted_alarm_keys:
                 continue
 
-            try:
-                trig_dt = datetime.strptime(target_trigger, "%Y-%m-%d %H:%M")
-                if now >= trig_dt:
-                    self._last_alerted_alarm_keys.add(alarm_key)
-                    self._play_chime()
-                    self.reminder_triggered.emit({
-                        "type": "alarm",
-                        "id": alarm["id"],
-                        "title": alarm.get("title", "周期闹钟"),
-                        "time": alarm.get("time", ""),
-                        "alarm": alarm
-                    })
-                    return  # Trigger one per second to prevent clutter
-            except Exception as e:
-                pass
+            if now >= trig_dt:
+                self._last_alerted_alarm_keys.add(alarm_key)
+                self._play_chime()
+                self.reminder_triggered.emit({
+                    "type": "alarm",
+                    "id": alarm["id"],
+                    "title": alarm.get("title", "周期闹钟"),
+                    "time": alarm.get("time", ""),
+                    "alarm": alarm
+                })
+                return  # Trigger one per second to prevent clutter
 
         # 2. Check Tasks (One-off Todos)
         todos = storage.get_todos()
@@ -165,6 +168,7 @@ class ReminderService(QObject):
 
         # 3. Check Habits (Interval Reminders: Water, Stretch, Health)
         habits = storage.get_habits()
+        habit_candidates = []
         for habit in habits:
             if not habit.get("enabled", True):
                 continue
@@ -173,22 +177,26 @@ class ReminderService(QObject):
             if not target_trigger:
                 continue
 
+            try:
+                trig_dt = datetime.strptime(target_trigger, "%Y-%m-%d %H:%M")
+                habit_candidates.append((trig_dt, target_trigger, habit))
+            except Exception:
+                pass
+
+        habit_candidates.sort(key=lambda x: x[0])
+        for trig_dt, target_trigger, habit in habit_candidates:
             habit_key = (habit["id"], target_trigger)
             if habit_key in self._last_alerted_alarm_keys:
                 continue
 
-            try:
-                trig_dt = datetime.strptime(target_trigger, "%Y-%m-%d %H:%M")
-                if now >= trig_dt:
-                    self._last_alerted_alarm_keys.add(habit_key)
-                    self._play_chime()
-                    self.reminder_triggered.emit({
-                        "type": "habit",
-                        "id": habit["id"],
-                        "title": habit.get("title", "定时喝水打卡"),
-                        "time": habit.get("next_trigger", "").split(" ")[-1],
-                        "habit": habit
-                    })
-                    return
-            except Exception:
-                pass
+            if now >= trig_dt:
+                self._last_alerted_alarm_keys.add(habit_key)
+                self._play_chime()
+                self.reminder_triggered.emit({
+                    "type": "habit",
+                    "id": habit["id"],
+                    "title": habit.get("title", "习惯提醒"),
+                    "time": target_trigger.split(" ")[-1],
+                    "habit": habit
+                })
+                return

@@ -948,3 +948,75 @@ class StorageManager:
 
 # Global instance
 storage = StorageManager()
+
+
+def get_habit_presentation(habit_data: dict) -> dict:
+    """
+    Returns presentation details for any habit:
+    - icon: emoji (💧, 🚶, 👀, 🏃, 💊, 🍎, 🌙, 🎯, etc.)
+    - unit: '杯' for water, '次' for others
+    - action_text: '喝了一杯', '完成拉伸', '完成打卡', etc.
+    - title: habit title string
+    - color: theme accent color (#38BDF8 for water, #34D399 for stretch, etc.)
+    """
+    if not isinstance(habit_data, dict):
+        return {
+            "icon": "🎯",
+            "unit": "次",
+            "action_text": "打卡完成",
+            "title": "健康习惯打卡",
+            "color": "#38BDF8",
+        }
+
+    title = habit_data.get("title", "习惯提醒")
+    h_type = str(habit_data.get("type", "")).lower()
+
+    if h_type == "water" or "水" in title:
+        icon = "💧"
+        unit = "杯"
+        action_text = "喝了一杯"
+        color = "#38BDF8"
+    elif h_type in ("stretch", "walk", "break") or any(k in title for k in ("拉伸", "起身", "活动", "走动", "散步", "站立")):
+        icon = "🚶"
+        unit = "次"
+        action_text = "完成拉伸"
+        color = "#34D399"
+    elif h_type in ("eye", "vision") or any(k in title for k in ("眼", "视力", "眺望")):
+        icon = "👀"
+        unit = "次"
+        action_text = "眺望休息"
+        color = "#60A5FA"
+    elif h_type in ("med", "pill") or any(k in title for k in ("药", "吃药")):
+        icon = "💊"
+        unit = "次"
+        action_text = "服药打卡"
+        color = "#F472B6"
+    elif h_type in ("run", "sport", "fitness") or any(k in title for k in ("跑", "运动", "健身", "锻炼")):
+        icon = "🏃"
+        unit = "次"
+        action_text = "完成锻炼"
+        color = "#FB923C"
+    elif any(k in title for k in ("睡", "休息", "午休")):
+        icon = "🌙"
+        unit = "次"
+        action_text = "打卡休息"
+        color = "#A78BFA"
+    else:
+        found_emoji = None
+        for ch in title:
+            if ord(ch) > 0x1F300:
+                found_emoji = ch
+                break
+        icon = found_emoji or "🎯"
+        unit = "次"
+        action_text = "打卡完成"
+        color = "#38BDF8"
+
+    return {
+        "icon": icon,
+        "unit": unit,
+        "action_text": action_text,
+        "title": title,
+        "color": color,
+    }
+

@@ -3,13 +3,14 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QFrame, QComboBox, QMenu,
-    QProgressBar, QSizePolicy
+    QProgressBar, QSizePolicy, QInputDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from storage import storage
+from storage import storage, get_habit_presentation
 from ui.styles import THEME
 from ui.components.toggle_switch import ToggleSwitch
 from ui.tabs.habit_edit_dialog import HabitEditDialog
+from ui.components.custom_interval_dialog import CustomIntervalDialog
 
 
 class HabitCard(QFrame):
@@ -30,6 +31,9 @@ class HabitCard(QFrame):
         layout.setSpacing(12)
 
         is_enabled = self.habit.get("enabled", True)
+        habit_info = get_habit_presentation(self.habit)
+        icon = habit_info["icon"]
+        unit = habit_info["unit"]
         now = datetime.now()
         now_time_str = now.strftime("%H:%M")
         start_t = self.habit.get("start_time", "09:00")
@@ -111,9 +115,9 @@ class HabitCard(QFrame):
         # Progress badge
         c = self.habit.get("today_count", 0)
         target = self.habit.get("target_count", 8)
-        prog_badge = QLabel(f"🎯 今日 {c}/{target} 次")
-        prog_badge.setStyleSheet("""
-            color: #38BDF8;
+        prog_badge = QLabel(f"{icon} 今日 {c}/{target} {unit}")
+        prog_badge.setStyleSheet(f"""
+            color: {habit_info['color']};
             background: rgba(56, 189, 248, 0.15);
             font-size: 11px;
             font-weight: 700;
@@ -139,31 +143,32 @@ class HabitCard(QFrame):
         btn_layout.setSpacing(6)
         btn_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
-        # Drink / Checkin Button (with dropdown menu to select next interval!)
-        self.checkin_btn = QPushButton("💧 打卡 +1")
+        # Dynamic Checkin Button
+        self.checkin_btn = QPushButton(f"{icon} 打卡 +1")
         self.checkin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.checkin_btn.setToolTip("记录打卡，并自选下一次提醒间隔")
-        self.checkin_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(56, 189, 248, 0.2);
-                color: #38BDF8;
+        self.checkin_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba(56, 189, 248, 0.18);
+                color: {habit_info['color']};
                 border: 1px solid rgba(56, 189, 248, 0.4);
-                border-radius: 6px;
-                padding: 4px 10px;
+                border-radius: 7px;
+                padding: 5px 12px;
                 font-size: 12px;
                 font-weight: 700;
-            }
-            QPushButton:hover {
-                background: #38BDF8;
+                min-height: 24px;
+            }}
+            QPushButton:hover {{
+                background: {habit_info['color']};
                 color: #000000;
-            }
+            }}
         """)
         self.checkin_btn.clicked.connect(self._show_checkin_menu)
         btn_layout.addWidget(self.checkin_btn)
 
         # Edit button
         edit_btn = QPushButton("✏️")
-        edit_btn.setFixedSize(28, 28)
+        edit_btn.setFixedSize(30, 30)
         edit_btn.setToolTip("编辑提醒时段与目标")
         edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         edit_btn.setStyleSheet("border-radius: 6px; padding: 0;")
@@ -172,7 +177,7 @@ class HabitCard(QFrame):
 
         # Delete button
         del_btn = QPushButton("🗑️")
-        del_btn.setFixedSize(28, 28)
+        del_btn.setFixedSize(30, 30)
         del_btn.setToolTip("删除循环提醒")
         del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         del_btn.setStyleSheet("border-radius: 6px; padding: 0;")
@@ -227,7 +232,23 @@ class HabitCard(QFrame):
             action = menu.addAction(label)
             action.triggered.connect(lambda chk, m=mins: self.checkin.emit(self.habit["id"], m))
 
+        menu.addSeparator()
+        custom_act = menu.addAction("⚙️ 自定义提醒间隔...")
+        custom_act.triggered.connect(self._prompt_custom_interval)
+
         menu.exec(self.cursor().pos())
+
+    def _prompt_custom_interval(self):
+        val, ok = CustomIntervalDialog.get_interval(
+            parent=self.window(),
+            title="自定义下次提醒时间",
+            prompt="请输入下次提醒间隔 (分钟):",
+            default_val=self.habit.get("default_interval", 30),
+            min_val=1,
+            max_val=720
+        )
+        if ok and val > 0:
+            self.checkin.emit(self.habit["id"], val)
 
 
 class HabitTab(QWidget):
@@ -322,8 +343,8 @@ class HabitTab(QWidget):
         self.start_combo = QComboBox()
         for h in range(6, 24):
             self.start_combo.addItem(f"{h:02d}:00", f"{h:02d}:00")
-        self.start_combo.setCurrentIndex(3) # 09:00
-        self.start_combo.setFixedWidth(75)
+        self.start_combo.setCurrentIndex(3)  # 09:00
+        self.start_combo.setFixedWidth(85)
         config_row.addWidget(self.start_combo)
 
         config_row.addWidget(QLabel("至"))
@@ -331,18 +352,20 @@ class HabitTab(QWidget):
         self.end_combo = QComboBox()
         for h in range(7, 24):
             self.end_combo.addItem(f"{h:02d}:00", f"{h:02d}:00")
-        self.end_combo.setCurrentIndex(11) # 18:00
-        self.end_combo.setFixedWidth(75)
+        self.end_combo.setCurrentIndex(11)  # 18:00
+        self.end_combo.setFixedWidth(85)
         config_row.addWidget(self.end_combo)
 
         config_row.addSpacing(6)
         config_row.addWidget(QLabel("间隔:"))
 
         self.interval_combo = QComboBox()
-        for m in (30, 45, 60, 90):
+        for m in (15, 20, 30, 45, 60, 90, 120):
             self.interval_combo.addItem(f"{m}分钟", m)
-        self.interval_combo.setCurrentIndex(1) # 45分钟
-        self.interval_combo.setFixedWidth(80)
+        self.interval_combo.addItem("自定义...", -1)
+        self.interval_combo.setCurrentIndex(3)  # 45分钟
+        self.interval_combo.setFixedWidth(100)
+        self.interval_combo.currentIndexChanged.connect(self._on_interval_combo_changed)
         config_row.addWidget(self.interval_combo)
 
         config_row.addStretch()
@@ -373,6 +396,27 @@ class HabitTab(QWidget):
         bottom_bar.addWidget(self.summary_lbl)
         bottom_bar.addStretch()
         main_layout.addLayout(bottom_bar)
+
+    def _on_interval_combo_changed(self, idx: int):
+        if self.interval_combo.itemData(idx) == -1:
+            val, ok = CustomIntervalDialog.get_interval(
+                parent=self.window(),
+                title="自定义习惯间隔",
+                prompt="请输入默认提醒间隔 (分钟):",
+                default_val=45,
+                min_val=1,
+                max_val=720
+            )
+            if ok and val > 0:
+                text = f"{val}分钟"
+                existing = self.interval_combo.findData(val)
+                if existing >= 0:
+                    self.interval_combo.setCurrentIndex(existing)
+                else:
+                    self.interval_combo.insertItem(self.interval_combo.count() - 1, text, val)
+                    self.interval_combo.setCurrentIndex(self.interval_combo.count() - 2)
+            else:
+                self.interval_combo.setCurrentIndex(3)
 
     def _on_add_habit(self):
         title = self.input_edit.text().strip()

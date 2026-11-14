@@ -1,12 +1,14 @@
 # ui/tabs/habit_edit_dialog.py - Modal Dialog for Habit / Interval Reminders
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QComboBox, QPushButton, QFrame, QGraphicsDropShadowEffect, QApplication
+    QComboBox, QPushButton, QFrame, QGraphicsDropShadowEffect, QApplication,
+    QInputDialog
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QMouseEvent
 from ui.styles import THEME, MAIN_STYLE
 from ui.components.icons import make_close_icon
+from ui.components.custom_interval_dialog import CustomIntervalDialog
 
 
 class HabitEditDialog(QDialog):
@@ -114,15 +116,30 @@ class HabitEditDialog(QDialog):
 
         # Interval combo
         self.interval_combo = QComboBox()
-        intervals = [(20, "每 20 分钟"), (30, "每 30 分钟"), (45, "每 45 分钟"),
-                     (60, "每 1 小时"), (90, "每 1.5 小时"), (120, "每 2 小时")]
+        intervals = [
+            (15, "每 15 分钟"),
+            (20, "每 20 分钟"),
+            (30, "每 30 分钟"),
+            (45, "每 45 分钟"),
+            (60, "每 1 小时"),
+            (90, "每 1.5 小时"),
+            (120, "每 2 小时"),
+            (-1, "自定义...")
+        ]
         for m, lbl in intervals:
             self.interval_combo.addItem(lbl, m)
         cur_int = self.habit.get("default_interval", 45)
+        found = False
         for i in range(self.interval_combo.count()):
             if self.interval_combo.itemData(i) == cur_int:
                 self.interval_combo.setCurrentIndex(i)
+                found = True
                 break
+        if not found and cur_int > 0:
+            self.interval_combo.insertItem(self.interval_combo.count() - 1, f"每 {cur_int} 分钟", cur_int)
+            self.interval_combo.setCurrentIndex(self.interval_combo.count() - 2)
+
+        self.interval_combo.currentIndexChanged.connect(self._on_interval_changed)
         opts_row.addWidget(self.interval_combo, 1)
 
         # Target count combo
@@ -177,6 +194,27 @@ class HabitEditDialog(QDialog):
     def mouseReleaseEvent(self, event: QMouseEvent):
         self._drag_pos = None
         super().mouseReleaseEvent(event)
+
+    def _on_interval_changed(self, idx: int):
+        if self.interval_combo.itemData(idx) == -1:
+            val, ok = CustomIntervalDialog.get_interval(
+                parent=self,
+                title="自定义提醒间隔",
+                prompt="请输入默认提醒间隔 (分钟):",
+                default_val=self.habit.get("default_interval", 45),
+                min_val=1,
+                max_val=720
+            )
+            if ok and val > 0:
+                text = f"每 {val} 分钟"
+                existing = self.interval_combo.findData(val)
+                if existing >= 0:
+                    self.interval_combo.setCurrentIndex(existing)
+                else:
+                    self.interval_combo.insertItem(self.interval_combo.count() - 1, text, val)
+                    self.interval_combo.setCurrentIndex(self.interval_combo.count() - 2)
+            else:
+                self.interval_combo.setCurrentIndex(3)
 
     def _on_save(self):
         title = self.title_input.text().strip()

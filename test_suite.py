@@ -5,13 +5,15 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding='utf-8')
 
 from datetime import datetime, timedelta
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 # Ensure QApplication exists for Qt signals & widgets
 app = QApplication.instance() or QApplication([])
 
 from storage import (
-    StorageManager, calculate_next_occurrence, format_repeat_display, parse_natural_time
+    StorageManager, calculate_next_occurrence, format_repeat_display, parse_natural_time,
+    get_habit_presentation
 )
 from config import REPEAT_NONE, REPEAT_DAILY, REPEAT_WEEKLY, REPEAT_WORKDAY
 from system_monitor import SystemMonitor
@@ -438,6 +440,65 @@ class TestDynamicIsland(unittest.TestCase):
             dlg.mouseReleaseEvent(release_evt)
             self.assertIsNone(dlg._drag_pos)
             dlg.close()
+
+    def test_15_habit_presentation_and_multi_habit(self):
+        water_habit = {"title": "定时喝水打卡 💧", "type": "water", "target_count": 8}
+        stretch_habit = {"title": "久坐起身拉伸 🚶", "type": "stretch", "target_count": 6}
+        eye_habit = {"title": "眼部放松休息", "type": "eye", "target_count": 5}
+        custom_habit = {"title": "每日冥想 🧘", "type": "other", "target_count": 1}
+
+        w_info = get_habit_presentation(water_habit)
+        self.assertEqual(w_info["icon"], "💧")
+        self.assertEqual(w_info["unit"], "杯")
+        self.assertEqual(w_info["action_text"], "喝了一杯")
+
+        s_info = get_habit_presentation(stretch_habit)
+        self.assertEqual(s_info["icon"], "🚶")
+        self.assertEqual(s_info["unit"], "次")
+        self.assertEqual(s_info["action_text"], "完成拉伸")
+
+        e_info = get_habit_presentation(eye_habit)
+        self.assertEqual(e_info["icon"], "👀")
+        self.assertEqual(e_info["unit"], "次")
+        self.assertEqual(e_info["action_text"], "眺望休息")
+
+        c_info = get_habit_presentation(custom_habit)
+        self.assertEqual(c_info["icon"], "🧘")
+        self.assertEqual(c_info["unit"], "次")
+        self.assertEqual(c_info["action_text"], "打卡完成")
+
+        # Verify ReminderDialog dynamic presentation for different habits
+        from ui.components.reminder_dialog import ReminderDialog
+        from ui.alert_island import AlertIsland
+
+        dlg_stretch = ReminderDialog({"type": "habit", "habit": stretch_habit, "title": stretch_habit["title"]})
+        self.assertIn("久坐起身拉伸", dlg_stretch.windowTitle())
+        self.assertEqual(dlg_stretch.habit_info["icon"], "🚶")
+        self.assertEqual(dlg_stretch.habit_info["unit"], "次")
+        # Test custom interval toggle & spinbox
+        self.assertTrue(dlg_stretch.custom_row.isHidden())
+        dlg_stretch._toggle_custom_input()
+        self.assertFalse(dlg_stretch.custom_row.isHidden())
+        dlg_stretch.custom_spin.setValue(25)
+        self.assertEqual(dlg_stretch.custom_spin.value(), 25)
+        dlg_stretch.close()
+
+        alert_w = AlertIsland()
+        alert_w.trigger_alert({"type": "habit", "habit": stretch_habit, "title": stretch_habit["title"]})
+        self.assertEqual(alert_w.bell_label.text(), "🚶")
+        self.assertIn("完成拉伸", alert_w.done_btn.text())
+        self.assertIn("久坐起身拉伸", alert_w.tag_label.text())
+        alert_w.close()
+
+        # Test CustomIntervalDialog stays on top
+        from ui.components.custom_interval_dialog import CustomIntervalDialog
+        custom_dlg = CustomIntervalDialog(initial_value=50)
+        self.assertTrue(bool(custom_dlg.windowFlags() & Qt.WindowType.WindowStaysOnTopHint))
+        self.assertEqual(custom_dlg.spin.value(), 50)
+        custom_dlg.spin.setValue(75)
+        custom_dlg._on_ok()
+        self.assertEqual(custom_dlg.value(), 75)
+        custom_dlg.close()
 
 if __name__ == "__main__":
     unittest.main()

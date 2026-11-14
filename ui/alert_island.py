@@ -1,7 +1,7 @@
 # ui/alert_island.py - Dynamic Island Alert Banner Supporting Todos and Recurring Alarms
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
-from storage import storage
+from storage import storage, get_habit_presentation
 from ui.styles import THEME
 from ui.components.icons import make_close_icon
 
@@ -94,10 +94,14 @@ class AlertIsland(QWidget):
             title = title[:19] + "..."
 
         if item_type == "habit":
-            self.bell_label.setText("💧")
-            self.tag_label.setText("💧 习惯提醒 · 定时喝水")
-            self.tag_label.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 700; background: transparent;")
-            self.done_btn.setText("💧 喝了一杯")
+            habit_info = get_habit_presentation(payload.get("habit") or payload)
+            icon = habit_info["icon"]
+            action_txt = habit_info["action_text"]
+            theme_color = habit_info["color"]
+            self.bell_label.setText(icon)
+            self.tag_label.setText(f"{icon} 习惯提醒 · {title}")
+            self.tag_label.setStyleSheet(f"color: {theme_color}; font-size: 11px; font-weight: 700; background: transparent;")
+            self.done_btn.setText(f"{icon} {action_txt}")
             self.snooze_btn.setText("稍后 15分")
         elif item_type == "alarm":
             self.bell_label.setText("⏰")
