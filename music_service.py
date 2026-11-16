@@ -55,6 +55,100 @@ def extract_cover_bytes(file_path: str) -> Optional[bytes]:
     return None
 
 
+def parse_audio_metadata(file_path: str) -> Dict[str, Any]:
+    """Extract complete track metadata (title, artist, album, genre, lossless) using mutagen and filename heuristics."""
+    p = Path(file_path)
+    title = ""
+    artist = ""
+    album = ""
+    genre = ""
+
+    # 1. Mutagen extraction
+    try:
+        import mutagen
+        try:
+            f = mutagen.File(str(p), easy=True)
+            if f and f.tags:
+                t = f.tags.get("title")
+                if t:
+                    title = t[0] if isinstance(t, list) else str(t)
+                a = f.tags.get("artist")
+                if a:
+                    artist = a[0] if isinstance(a, list) else str(a)
+                alb = f.tags.get("album")
+                if alb:
+                    album = alb[0] if isinstance(alb, list) else str(alb)
+                g = f.tags.get("genre")
+                if g:
+                    genre = g[0] if isinstance(g, list) else str(g)
+        except Exception:
+            pass
+
+        if not title or not artist or not album:
+            f2 = mutagen.File(str(p))
+            if f2 and getattr(f2, "tags", None):
+                for k in f2.tags.keys():
+                    if (k.startswith("TIT2") or k.lower() == "title") and not title:
+                        v = f2.tags[k]
+                        title = str(v[0] if isinstance(v, list) else v)
+                    elif (k.startswith("TPE1") or k.lower() == "artist") and not artist:
+                        v = f2.tags[k]
+                        artist = str(v[0] if isinstance(v, list) else v)
+                    elif (k.startswith("TALB") or k.lower() == "album") and not album:
+                        v = f2.tags[k]
+                        album = str(v[0] if isinstance(v, list) else v)
+                    elif (k.startswith("TCON") or k.lower() == "genre") and not genre:
+                        v = f2.tags[k]
+                        genre = str(v[0] if isinstance(v, list) else v)
+    except Exception:
+        pass
+
+    # 2. Filename heuristic fallback if artist missing
+    stem = p.stem
+    if not artist or artist == "本地音频":
+        if " - " in stem:
+            parts = stem.split(" - ", 1)
+            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                artist = parts[0].strip()
+                if not title:
+                    title = parts[1].strip()
+        elif "-" in stem:
+            parts = stem.split("-", 1)
+            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                artist = parts[0].strip()
+                if not title:
+                    title = parts[1].strip()
+
+    if not title:
+        title = stem
+    if not artist:
+        artist = "未知歌手"
+
+    # 3. Album heuristic
+    if not album:
+        parent_name = p.parent.name
+        if parent_name and parent_name.lower() not in ("music", "音乐", "desktop", "downloads", "my music"):
+            album = parent_name
+        else:
+            album = "单曲精选"
+
+    ext = p.suffix.lower().replace(".", "")
+    is_lossless = ext in ("flac", "wav", "ape")
+
+    return {
+        "path": str(p.resolve()),
+        "title": title.strip(),
+        "artist": artist.strip(),
+        "album": album.strip(),
+        "genre": genre.strip() if genre else "",
+        "filename": p.name,
+        "format": ext.upper() if ext else "AUDIO",
+        "is_lossless": is_lossless,
+        "favorite": False,
+        "folder": p.parent.name or "本地目录",
+    }
+
+
 class MusicService(QObject):
     playback_state_changed = pyqtSignal(bool)           # is_playing
     track_changed = pyqtSignal(dict)                    # current track info
@@ -76,11 +170,13 @@ class MusicService(QObject):
         self.player.setAudioOutput(self.audio_output)
 
         self.playlist: List[Dict[str, Any]] = storage.get_playlist()
+        self._enrich_playlist()
         self.current_index = -1
         self.current_track: Optional[Dict[str, Any]] = None
         self.mode_index = 0
         self.is_playing = False
         self._cover_cache: Dict[str, Optional[bytes]] = {}
+        self._categories_cache: Optional[Dict[str, Any]] = None
 
         # Load volume from settings
         settings = storage.get_settings()
@@ -88,6 +184,62 @@ class MusicService(QObject):
         self.set_volume(init_vol)
 
         self._connect_signals()
+
+    def _enrich_playlist(self):
+        """Backfill metadata for playlist entries missing artist, album, favorite, or folder tags."""
+        modified = False
+        for t in self.playlist:
+            path = t.get("path", "")
+            # Re-parse if album or artist are unparsed / default
+            needs_parse = (
+                not t.get("album") or t.get("album") == "单曲精选" or
+                not t.get("artist") or t.get("artist") in ("未知歌手", "本地音频") or
+                "is_lossless" not in t or "folder" not in t
+            )
+            if needs_parse and path and Path(path).exists():
+                try:
+                    meta = parse_audio_metadata(path)
+                    t["album"] = meta.get("album") or "单曲精选"
+                    t["artist"] = meta.get("artist") or "未知歌手"
+                    if meta.get("title") and t.get("title") in ("", "未知曲目", Path(path).stem):
+                        t["title"] = meta["title"]
+                    t["is_lossless"] = meta.get("is_lossless", False)
+                    t["folder"] = meta.get("folder") or "本地目录"
+                    t["format"] = meta.get("format", "")
+                    modified = True
+                except Exception:
+                    pass
+
+            if "favorite" not in t:
+                t["favorite"] = False
+                modified = True
+            if "album" not in t or not t["album"]:
+                t["album"] = "单曲精选"
+                modified = True
+            if "folder" not in t:
+                p = Path(path)
+                t["folder"] = p.parent.name if p.parent.name else "本地目录"
+                modified = True
+            if "is_lossless" not in t:
+                ext = Path(path).suffix.lower().replace(".", "")
+                t["is_lossless"] = ext in ("flac", "wav", "ape")
+                modified = True
+            if not t.get("artist") or t.get("artist") == "本地音频":
+                stem = Path(path).stem
+                if " - " in stem:
+                    parts = stem.split(" - ", 1)
+                    t["artist"] = parts[0].strip()
+                    t["title"] = parts[1].strip()
+                elif "-" in stem:
+                    parts = stem.split("-", 1)
+                    t["artist"] = parts[0].strip()
+                    t["title"] = parts[1].strip()
+                else:
+                    t["artist"] = "未知歌手"
+                modified = True
+
+        if modified and self.playlist:
+            storage.save_playlist(self.playlist)
 
     def _connect_signals(self):
         self.player.playbackStateChanged.connect(self._on_playback_state)
@@ -157,19 +309,14 @@ class MusicService(QObject):
         for path_str in file_paths:
             p = Path(path_str)
             if p.suffix.lower() in SUPPORTED_EXTENSIONS and p.exists():
-                title = p.stem
-                track = {
-                    "path": str(p.resolve()),
-                    "title": title,
-                    "artist": "本地音频",
-                    "filename": p.name,
-                }
+                track = parse_audio_metadata(str(p.resolve()))
                 # Check duplicate
                 if not any(t["path"] == track["path"] for t in self.playlist):
                     self.playlist.append(track)
                     added = True
 
         if added:
+            self._categories_cache = None
             storage.save_playlist(self.playlist)
             self.playlist_changed.emit()
             if self.current_index == -1 and len(self.playlist) > 0:
@@ -194,6 +341,7 @@ class MusicService(QObject):
         if 0 <= index < len(self.playlist):
             was_playing_this = (index == self.current_index)
             self.playlist.pop(index)
+            self._categories_cache = None
             storage.save_playlist(self.playlist)
             self.playlist_changed.emit()
 
@@ -208,6 +356,82 @@ class MusicService(QObject):
                     self.play_track(self.current_index)
                 elif self.current_index > index:
                     self.current_index -= 1
+
+    def toggle_favorite(self, track_or_index=None) -> bool:
+        """Toggle favorite flag for a track (by index, dict, or current track)."""
+        target = None
+        if isinstance(track_or_index, int) and 0 <= track_or_index < len(self.playlist):
+            target = self.playlist[track_or_index]
+        elif isinstance(track_or_index, dict):
+            path = track_or_index.get("path")
+            for t in self.playlist:
+                if t.get("path") == path:
+                    target = t
+                    break
+        elif self.current_track:
+            target = self.current_track
+
+        if target is not None:
+            new_val = not target.get("favorite", False)
+            target["favorite"] = new_val
+            self._categories_cache = None
+            storage.save_playlist(self.playlist)
+            self.playlist_changed.emit()
+            return new_val
+        return False
+
+    def is_favorite(self, track_or_index=None) -> bool:
+        """Check if the given track (by index, dict, or current track) is favorited."""
+        target = None
+        if isinstance(track_or_index, int) and 0 <= track_or_index < len(self.playlist):
+            target = self.playlist[track_or_index]
+        elif isinstance(track_or_index, dict):
+            path = track_or_index.get("path")
+            for t in self.playlist:
+                if t.get("path") == path:
+                    target = t
+                    break
+        elif self.current_track:
+            target = self.current_track
+        return bool(target.get("favorite", False)) if target else False
+
+    def get_categories(self) -> Dict[str, Any]:
+        """Aggregate summary of all audio categories (cached for instant zero-latency UI switching)."""
+        if getattr(self, "_categories_cache", None) is not None:
+            return self._categories_cache
+
+        artists: Dict[str, List[int]] = {}
+        albums: Dict[str, List[int]] = {}
+        folders: Dict[str, List[int]] = {}
+        lossless_indices: List[int] = []
+        favorite_indices: List[int] = []
+
+        for idx, track in enumerate(self.playlist):
+            art = track.get("artist") or "未知歌手"
+            artists.setdefault(art, []).append(idx)
+
+            alb = track.get("album") or "单曲精选"
+            albums.setdefault(alb, []).append(idx)
+
+            fld = track.get("folder") or "本地目录"
+            folders.setdefault(fld, []).append(idx)
+
+            if track.get("is_lossless", False):
+                lossless_indices.append(idx)
+            if track.get("favorite", False):
+                favorite_indices.append(idx)
+
+        res = {
+            "total": len(self.playlist),
+            "favorites": favorite_indices,
+            "lossless": lossless_indices,
+            "artists": artists,
+            "albums": albums,
+            "folders": folders,
+        }
+        self._categories_cache = res
+        return res
+
 
     def get_track_cover_bytes(self, track: Optional[Dict[str, Any]] = None) -> Optional[bytes]:
         """Return raw cover image bytes for the given track or current track, with memory caching."""
@@ -230,6 +454,7 @@ class MusicService(QObject):
         self.current_index = -1
         self.current_track = None
         self._cover_cache.clear()
+        self._categories_cache = None
         storage.save_playlist([])
         self.playlist_changed.emit()
         self.track_changed.emit({})

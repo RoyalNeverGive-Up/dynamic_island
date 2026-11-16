@@ -1,7 +1,7 @@
 # ui/components/icons.py - Programmatically rendered crisp vector QIcons
 # Immune to Windows font fallback issues, emoji rendering bugs, and character clipping.
 
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen, QBrush, QPolygonF
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen, QBrush, QPolygonF, QPainterPath, QFont
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QSize
 
 def make_close_icon(size: int = 16, color: str = "#FFFFFF") -> QIcon:
@@ -195,3 +195,163 @@ def make_volume_icon(size: int = 16, muted: bool = False, color: str = "#FFFFFF"
         p.drawArc(QRectF(size * 0.44, size * 0.18, size * 0.46, size * 0.64), -60 * 16, 120 * 16)
     p.end()
     return QIcon(pix)
+
+
+def make_heart_icon(size: int = 16, filled: bool = False, color: str = "#FA2D48") -> QIcon:
+    """Apple SF Symbols style heart icon (outline or filled)."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    w = float(size)
+    h = float(size)
+    path = QPainterPath()
+    mid_x = w * 0.5
+    top_y = h * 0.30
+    bot_y = h * 0.86
+    path.moveTo(mid_x, bot_y)
+    path.cubicTo(w * 0.10, h * 0.58, w * 0.05, top_y, w * 0.28, top_y)
+    path.cubicTo(w * 0.42, top_y, mid_x, h * 0.46, mid_x, h * 0.48)
+    path.cubicTo(mid_x, h * 0.46, w * 0.58, top_y, w * 0.72, top_y)
+    path.cubicTo(w * 0.95, top_y, w * 0.90, h * 0.58, mid_x, bot_y)
+    path.closeSubpath()
+
+    if filled:
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(color)))
+        p.drawPath(path)
+    else:
+        pen = QPen(QColor(color), 1.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(path)
+    p.end()
+    return QIcon(pix)
+
+
+def make_shuffle_icon(size: int = 16, active: bool = False, color: str = "#FFFFFF") -> QIcon:
+    """Apple SF Symbols style crossover shuffle arrows."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    draw_col = QColor("#FA2D48" if active else color)
+    pen = QPen(draw_col, 1.8)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+
+    s = float(size)
+    # Top arrow track
+    p.drawLine(QPointF(s * 0.15, s * 0.30), QPointF(s * 0.35, s * 0.30))
+    p.drawLine(QPointF(s * 0.35, s * 0.30), QPointF(s * 0.65, s * 0.70))
+    p.drawLine(QPointF(s * 0.65, s * 0.70), QPointF(s * 0.85, s * 0.70))
+    # Top head
+    p.drawLine(QPointF(s * 0.72, s * 0.58), QPointF(s * 0.85, s * 0.70))
+    p.drawLine(QPointF(s * 0.72, s * 0.82), QPointF(s * 0.85, s * 0.70))
+
+    # Bottom arrow track (broken crossover)
+    p.drawLine(QPointF(s * 0.15, s * 0.70), QPointF(s * 0.35, s * 0.70))
+    p.drawLine(QPointF(s * 0.35, s * 0.70), QPointF(s * 0.46, s * 0.55))
+    p.drawLine(QPointF(s * 0.54, s * 0.45), QPointF(s * 0.65, s * 0.30))
+    p.drawLine(QPointF(s * 0.65, s * 0.30), QPointF(s * 0.85, s * 0.30))
+    # Bottom head
+    p.drawLine(QPointF(s * 0.72, s * 0.18), QPointF(s * 0.85, s * 0.30))
+    p.drawLine(QPointF(s * 0.72, s * 0.42), QPointF(s * 0.85, s * 0.30))
+
+    p.end()
+    return QIcon(pix)
+
+
+def make_repeat_icon(size: int = 16, mode: str = "all", color: str = "#FFFFFF") -> QIcon:
+    """Apple SF Symbols style repeat loop icon (all, one, or off)."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    is_active = (mode in ("all", "one", "列表循环", "单曲循环"))
+    draw_col = QColor("#FA2D48" if is_active else color)
+    pen = QPen(draw_col, 1.8)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+
+    s = float(size)
+    # Circular loop arc
+    p.drawArc(QRectF(s * 0.15, s * 0.20, s * 0.70, s * 0.60), 30 * 16, 220 * 16)
+    p.drawArc(QRectF(s * 0.15, s * 0.20, s * 0.70, s * 0.60), 210 * 16, 220 * 16)
+
+    # Arrow head at top-right
+    p.drawLine(QPointF(s * 0.75, s * 0.30), QPointF(s * 0.88, s * 0.46))
+    p.drawLine(QPointF(s * 0.68, s * 0.50), QPointF(s * 0.88, s * 0.46))
+
+    if mode in ("one", "单曲循环"):
+        font = QFont("Arial", int(s * 0.40))
+        font.setBold(True)
+        p.setFont(font)
+        p.drawText(QRectF(0, 0, s, s), Qt.AlignmentFlag.AlignCenter, "1")
+
+    p.end()
+    return QIcon(pix)
+
+
+def make_search_icon(size: int = 14, color: str = "#94A3B8") -> QIcon:
+    """Apple SF Symbols style search magnifying glass."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color), 1.8)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    s = float(size)
+    p.drawEllipse(QRectF(s * 0.15, s * 0.15, s * 0.50, s * 0.50))
+    p.drawLine(QPointF(s * 0.54, s * 0.54), QPointF(s * 0.85, s * 0.85))
+    p.end()
+    return QIcon(pix)
+
+
+def make_plus_icon(size: int = 16, color: str = "#CBD5E1") -> QIcon:
+    """Apple SF Symbols style plus icon."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color), 1.8)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    s = float(size)
+    p.drawLine(QPointF(s * 0.5, s * 0.20), QPointF(s * 0.5, s * 0.80))
+    p.drawLine(QPointF(s * 0.20, s * 0.5), QPointF(s * 0.80, s * 0.5))
+    p.end()
+    return QIcon(pix)
+
+
+def make_folder_icon(size: int = 16, color: str = "#CBD5E1") -> QIcon:
+    """Apple SF Symbols style folder icon."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color), 1.6)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    s = float(size)
+    path = QPainterPath()
+    path.moveTo(s * 0.15, s * 0.32)
+    path.lineTo(s * 0.40, s * 0.32)
+    path.lineTo(s * 0.50, s * 0.44)
+    path.lineTo(s * 0.85, s * 0.44)
+    path.lineTo(s * 0.85, s * 0.80)
+    path.lineTo(s * 0.15, s * 0.80)
+    path.closeSubpath()
+    p.drawPath(path)
+    p.end()
+    return QIcon(pix)
+

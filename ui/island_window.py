@@ -84,6 +84,7 @@ class IslandWindow(QWidget):
 
         # 3. Dashboard View
         self.dashboard_view = Dashboard(self.system_monitor, self.music_service, self)
+        self.dashboard_view.setFixedWidth(EXPANDED_WIDTH)
         self.dashboard_view.collapse_requested.connect(self.collapse_to_compact)
         self.dashboard_view.todos_changed.connect(self.compact_view.update_content)
         self.dashboard_view.reposition_requested.connect(lambda mode: self.reposition(mode, animate=True))
@@ -156,9 +157,6 @@ class IslandWindow(QWidget):
         exp_content_w = EXPANDED_WIDTH
         exp_content_h = EXPANDED_HEIGHT
         if hasattr(self, "dashboard_view") and self.dashboard_view:
-            exp_min_w = self.dashboard_view.minimumSizeHint().width()
-            if exp_min_w > exp_content_w:
-                exp_content_w = exp_min_w
             exp_min_h = self.dashboard_view.minimumSizeHint().height()
             if exp_min_h > exp_content_h:
                 exp_content_h = exp_min_h
@@ -408,10 +406,15 @@ class IslandWindow(QWidget):
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
         # Protect against runaway mixed-DPI OS scaling loops when dragging across monitors
-        if self.state == self.STATE_COMPACT and self.anim.state() != QPropertyAnimation.State.Running:
-            expected = self.get_target_geometry(self.STATE_COMPACT)
-            if self.height() != expected.height() or self.width() > expected.width() + 30 or self.width() < expected.width() - 30:
-                self.resize(expected.width(), expected.height())
+        if self.anim.state() != QPropertyAnimation.State.Running:
+            if self.state == self.STATE_COMPACT:
+                expected = self.get_target_geometry(self.STATE_COMPACT)
+                if self.height() != expected.height() or self.width() > expected.width() + 30 or self.width() < expected.width() - 30:
+                    self.resize(expected.width(), expected.height())
+            elif self.state == self.STATE_EXPANDED:
+                expected = self.get_target_geometry(self.STATE_EXPANDED)
+                if self.width() > expected.width():
+                    self.resize(expected.width(), self.height())
 
     def enterEvent(self, event):
         self.leave_timer.stop()
