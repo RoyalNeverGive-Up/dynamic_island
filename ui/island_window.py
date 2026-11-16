@@ -116,10 +116,12 @@ class IslandWindow(QWidget):
         # Music updates
         def update_compact_music():
             title = self.music_service.current_track.get("title", "") if self.music_service.current_track else ""
-            self.compact_view.set_music_status(self.music_service.is_playing, title)
+            cover_bytes = self.music_service.get_current_cover_bytes()
+            self.compact_view.set_music_status(self.music_service.is_playing, title, cover_bytes)
 
         self.music_service.playback_state_changed.connect(lambda is_p: update_compact_music())
         self.music_service.track_changed.connect(lambda t: update_compact_music())
+        self.music_service.cover_changed.connect(lambda b: update_compact_music())
 
     def _show_state_widget(self, state: str):
         self.state = state
@@ -168,13 +170,19 @@ class IslandWindow(QWidget):
 
                 compact_h = COMPACT_HEIGHT + 2 * margin
 
-                # Anchor horizontally to saved_x
-                x = saved_x
+                # Horizontal positioning:
+                # If placed in the right half of the screen, anchor to the capsule's right edge!
+                # This ensures that when expanding/collapsing on the right side of the screen,
+                # the window expands to the left and collapses back to the exact right edge without shifting.
+                if (saved_x + compact_w // 2) > (s_geom.left() + s_geom.width() // 2):
+                    x = saved_x + compact_w - w
+                else:
+                    x = saved_x
 
                 # Vertical positioning:
                 # If placed in the bottom half of the screen, expand upward from the capsule's bottom edge!
                 # This ensures the capsule stays firmly in place without jumping to the top of screen.
-                if saved_y > s_geom.top() + s_geom.height() // 2 and state != self.STATE_COMPACT:
+                if (saved_y + compact_h // 2) > (s_geom.top() + s_geom.height() // 2) and state != self.STATE_COMPACT:
                     y = saved_y + compact_h - h
                 else:
                     y = saved_y
@@ -183,7 +191,7 @@ class IslandWindow(QWidget):
                 min_x = s_geom.left() - margin
                 max_x = s_geom.right() + 1 - w + margin
                 min_y = s_geom.top() - margin
-                max_y = max(min_y, s_avail.bottom() + 1 - h + margin)
+                max_y = s_geom.bottom() + 1 - h + margin if state == self.STATE_COMPACT else max(min_y, s_avail.bottom() + 1 - h + margin)
 
                 x = max(min_x, min(max_x, x))
                 y = max(min_y, min(max_y, y))
@@ -315,16 +323,24 @@ class IslandWindow(QWidget):
     def _save_dragged_position(self, final_pos: QPoint):
         margin = SHADOW_MARGIN
         compact_h = COMPACT_HEIGHT + 2 * margin
+        compact_content_w = COMPACT_WIDTH
+        if hasattr(self, "compact_view") and self.compact_view:
+            hint_w = self.compact_view.sizeHint().width()
+            if hint_w > compact_content_w:
+                compact_content_w = hint_w
+        compact_w = compact_content_w + 2 * margin
+
         screen = get_screen_at_point(QPoint(final_pos.x() + margin + 10, final_pos.y() + margin + 10))
         s_geom = screen.geometry()
 
         save_x = final_pos.x()
         save_y = final_pos.y()
 
-        # If user dragged the EXPANDED window and its bottom is in the lower half of screen,
-        # convert the saved Y back to the compact capsule anchor (capsule bottom matches window bottom)
+        # If user dragged the EXPANDED window, convert anchors back to compact capsule state
         if self.state == self.STATE_EXPANDED:
-            if (final_pos.y() + self.height()) > (s_geom.top() + s_geom.height() // 2):
+            if (final_pos.x() + self.width() // 2) > (s_geom.left() + s_geom.width() // 2):
+                save_x = final_pos.x() + self.width() - compact_w
+            if (final_pos.y() + self.height() // 2) > (s_geom.top() + s_geom.height() // 2):
                 save_y = final_pos.y() + self.height() - compact_h
 
         storage.update_setting("position_mode", "custom")

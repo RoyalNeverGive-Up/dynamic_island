@@ -1,13 +1,17 @@
 import os
 import math
 from pathlib import Path
+from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QSlider, QScrollArea, QFrame, QFileDialog, QMessageBox,
     QLineEdit
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRectF, QPointF
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QCursor, QFont
+from PyQt6.QtGui import (
+    QPainter, QColor, QPen, QBrush, QCursor, QFont,
+    QPixmap, QPainterPath, QLinearGradient
+)
 
 from music_service import MusicService, SUPPORTED_EXTENSIONS
 from ui.styles import THEME
@@ -83,6 +87,79 @@ class VinylWidget(QWidget):
         p.drawEllipse(QRectF(-hr, -hr, hr * 2, hr * 2))
 
         p.restore()
+        p.end()
+
+
+class AlbumCoverWidget(VinylWidget):
+    """Modern rounded album cover display with smooth scaling, crisp border, and elegant fallback."""
+
+    def __init__(self, size: int = 56, radius: int = 10, parent=None):
+        super().__init__(parent)
+        self.size = size
+        self.radius = radius
+        self.setFixedSize(size, size)
+        self.pixmap: Optional[QPixmap] = None
+
+    def set_cover_bytes(self, data: Optional[bytes]):
+        if data:
+            src = QPixmap()
+            if src.loadFromData(data):
+                target = QPixmap(self.size, self.size)
+                target.fill(Qt.GlobalColor.transparent)
+                scaled = src.scaled(
+                    self.size, self.size,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                p = QPainter(target)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                path = QPainterPath()
+                path.addRoundedRect(0.0, 0.0, float(self.size), float(self.size), float(self.radius), float(self.radius))
+                p.setClipPath(path)
+                ox = max(0, (scaled.width() - self.size) // 2)
+                oy = max(0, (scaled.height() - self.size) // 2)
+                p.drawPixmap(0, 0, scaled, ox, oy, self.size, self.size)
+                p.end()
+                self.pixmap = target
+            else:
+                self.pixmap = None
+        else:
+            self.pixmap = None
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = float(self.size)
+
+        if self.pixmap and not self.pixmap.isNull():
+            p.drawPixmap(0, 0, self.pixmap)
+            border_color = QColor("#38BDF8") if self.is_playing else QColor(255, 255, 255, 50)
+            p.setPen(QPen(border_color, 1.2))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(QRectF(0.6, 0.6, r - 1.2, r - 1.2), float(self.radius), float(self.radius))
+        else:
+            # Elegant Fallback: Modern gradient card with music icon
+            path = QPainterPath()
+            path.addRoundedRect(0.0, 0.0, r, r, float(self.radius), float(self.radius))
+            p.setClipPath(path)
+
+            grad = QLinearGradient(0, 0, r, r)
+            grad.setColorAt(0.0, QColor("#1E293B"))
+            grad.setColorAt(1.0, QColor("#0F172A"))
+            p.fillRect(0, 0, int(r), int(r), grad)
+
+            border_color = QColor(56, 189, 248, 120) if self.is_playing else QColor(255, 255, 255, 30)
+            p.setPen(QPen(border_color, 1.0))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(QRectF(0.5, 0.5, r - 1.0, r - 1.0), float(self.radius), float(self.radius))
+
+            p.setPen(QColor("#38BDF8"))
+            font = QFont("Segoe UI Emoji", int(r * 0.40))
+            font.setBold(True)
+            p.setFont(font)
+            p.drawText(QRectF(0, 0, r, r), Qt.AlignmentFlag.AlignCenter, "🎵")
+
         p.end()
 
 
@@ -274,6 +351,7 @@ class MusicTab(QWidget):
         self._init_ui()
         self._connect_signals()
         self.reload_playlist()
+        self._on_cover_changed(self.music.get_current_cover_bytes())
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -345,13 +423,14 @@ class MusicTab(QWidget):
         card_layout.setContentsMargins(14, 12, 14, 12)
         card_layout.setSpacing(10)
 
-        # Song Info Row: Vinyl Record + Titles + Mode Toggle
+        # Song Info Row: Album Art Cover + Titles + Mode Toggle
         song_info_row = QHBoxLayout()
         song_info_row.setSpacing(12)
 
-        # Rotating Vinyl Record
-        self.vinyl = VinylWidget(self)
-        song_info_row.addWidget(self.vinyl)
+        # High-Contrast Parsed Album Cover Widget
+        self.cover_widget = AlbumCoverWidget(size=56, radius=10, parent=self)
+        self.vinyl = self.cover_widget  # backwards compatibility alias
+        song_info_row.addWidget(self.cover_widget)
 
         # Title & Subtitle
         title_box = QVBoxLayout()
@@ -602,6 +681,7 @@ class MusicTab(QWidget):
     def _connect_signals(self):
         self.music.playback_state_changed.connect(self._on_playback_state)
         self.music.track_changed.connect(self._on_track_changed)
+        self.music.cover_changed.connect(self._on_cover_changed)
         self.music.position_changed.connect(self._on_position_changed)
         self.music.playlist_changed.connect(self.reload_playlist)
         self.music.volume_changed.connect(self._on_volume_signal)
@@ -609,7 +689,7 @@ class MusicTab(QWidget):
 
     def _on_playback_state(self, is_playing: bool):
         self.play_btn.setIcon(make_pause_icon(18, "#FFFFFF") if is_playing else make_play_icon(20, "#FFFFFF"))
-        self.vinyl.set_playing(is_playing)
+        self.cover_widget.set_playing(is_playing)
         self.card_wave.set_playing(is_playing)
         self.card_wave.setVisible(is_playing)
         # Update active item waveform in playlist
@@ -621,11 +701,17 @@ class MusicTab(QWidget):
             self.now_title_lbl.setText(title)
             self.now_title_lbl.setToolTip(f"{title}\n路径: {track.get('path', '')}")
             self.now_artist_lbl.setText(track.get("filename", "本地音频"))
+            self._on_cover_changed(self.music.get_current_cover_bytes())
         else:
             self.now_title_lbl.setText("未在播放音乐")
             self.now_title_lbl.setToolTip("")
             self.now_artist_lbl.setText("播放列表为空，请导入歌曲")
+            self._on_cover_changed(None)
         self.reload_playlist()
+
+    def _on_cover_changed(self, cover_bytes: Optional[bytes]):
+        if hasattr(self, "cover_widget") and self.cover_widget:
+            self.cover_widget.set_cover_bytes(cover_bytes)
 
     def _on_position_changed(self, pos: int, dur: int):
         if not self.user_is_seeking:

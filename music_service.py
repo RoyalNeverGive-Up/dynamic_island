@@ -9,6 +9,52 @@ from storage import storage
 
 SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma"}
 
+
+def extract_cover_bytes(file_path: str) -> Optional[bytes]:
+    """Extract embedded album cover art from audio files or adjacent cover images."""
+    p = Path(file_path)
+    if not p.exists() or not p.is_file():
+        return None
+
+    # 1. Mutagen extraction (supports FLAC, MP3, MP4/M4A, OGG, etc.)
+    try:
+        import mutagen
+        f = mutagen.File(str(p))
+        if f is not None:
+            # FLAC
+            if hasattr(f, "pictures") and f.pictures:
+                return bytes(f.pictures[0].data)
+            # ID3 (MP3) or MP4/M4A tags
+            if hasattr(f, "tags") and f.tags:
+                for k in f.tags.keys():
+                    if k.startswith("APIC") or k.startswith("covr") or k.startswith("PIC"):
+                        tag = f.tags[k]
+                        if hasattr(tag, "data"):
+                            return bytes(tag.data)
+                        elif isinstance(tag, list) and len(tag) > 0:
+                            item = tag[0]
+                            return bytes(item.data if hasattr(item, "data") else item)
+    except Exception:
+        pass
+
+    # 2. Adjacent album art image files in the same directory
+    try:
+        parent_dir = p.parent
+        cover_names = [
+            "cover.jpg", "cover.png", "folder.jpg", "folder.png",
+            "front.jpg", "front.png", "album.jpg", "album.png"
+        ]
+        for name in cover_names:
+            img_file = parent_dir / name
+            if img_file.exists() and img_file.is_file():
+                with open(img_file, "rb") as fp:
+                    return fp.read()
+    except Exception:
+        pass
+
+    return None
+
+
 class MusicService(QObject):
     playback_state_changed = pyqtSignal(bool)           # is_playing
     track_changed = pyqtSignal(dict)                    # current track info
@@ -16,6 +62,7 @@ class MusicService(QObject):
     playlist_changed = pyqtSignal()
     volume_changed = pyqtSignal(int)
     mode_changed = pyqtSignal(str)
+    cover_changed = pyqtSignal(bytes)                   # album cover bytes (or b"")
 
     MODE_LIST_LOOP = "列表循环"
     MODE_SINGLE_LOOP = "单曲循环"
@@ -33,6 +80,7 @@ class MusicService(QObject):
         self.current_track: Optional[Dict[str, Any]] = None
         self.mode_index = 0
         self.is_playing = False
+        self._cover_cache: Dict[str, Optional[bytes]] = {}
 
         # Load volume from settings
         settings = storage.get_settings()
@@ -161,14 +209,31 @@ class MusicService(QObject):
                 elif self.current_index > index:
                     self.current_index -= 1
 
+    def get_track_cover_bytes(self, track: Optional[Dict[str, Any]] = None) -> Optional[bytes]:
+        """Return raw cover image bytes for the given track or current track, with memory caching."""
+        target = track or self.current_track
+        if not target:
+            return None
+        path = target.get("path", "")
+        if not path:
+            return None
+        if path not in self._cover_cache:
+            self._cover_cache[path] = extract_cover_bytes(path)
+        return self._cover_cache[path]
+
+    def get_current_cover_bytes(self) -> Optional[bytes]:
+        return self.get_track_cover_bytes(self.current_track)
+
     def clear_playlist(self):
         self.stop()
         self.playlist = []
         self.current_index = -1
         self.current_track = None
+        self._cover_cache.clear()
         storage.save_playlist([])
         self.playlist_changed.emit()
         self.track_changed.emit({})
+        self.cover_changed.emit(b"")
 
     def play_track(self, index: int):
         if not (0 <= index < len(self.playlist)):
@@ -181,6 +246,9 @@ class MusicService(QObject):
         self.player.setSource(url)
         self.player.play()
         self.track_changed.emit(self.current_track)
+
+        cover = self.get_current_cover_bytes()
+        self.cover_changed.emit(cover or b"")
 
     def toggle_play(self):
         if self.is_playing:

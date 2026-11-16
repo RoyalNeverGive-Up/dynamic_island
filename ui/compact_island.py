@@ -1,11 +1,34 @@
 from datetime import datetime
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QApplication
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPoint
-from PyQt6.QtGui import QFont, QMouseEvent
+from PyQt6.QtGui import QFont, QMouseEvent, QPainter, QPainterPath, QPixmap
+from typing import Optional
 from storage import storage, format_repeat_display, get_habit_presentation
 from ui.styles import THEME
 from ui.screen_utils import clamp_window_to_edges
 from ui.components.icons import make_play_icon, make_pause_icon
+
+
+def make_rounded_pixmap(data: bytes, size: int = 22, radius: int = 6) -> Optional[QPixmap]:
+    """Render a high-contrast rounded album cover pixmap."""
+    if not data:
+        return None
+    src = QPixmap()
+    if not src.loadFromData(data):
+        return None
+    target = QPixmap(size, size)
+    target.fill(Qt.GlobalColor.transparent)
+    scaled = src.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+    p = QPainter(target)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    path = QPainterPath()
+    path.addRoundedRect(0.0, 0.0, float(size), float(size), float(radius), float(radius))
+    p.setClipPath(path)
+    ox = max(0, (scaled.width() - size) // 2)
+    oy = max(0, (scaled.height() - size) // 2)
+    p.drawPixmap(0, 0, scaled, ox, oy, size, size)
+    p.end()
+    return target
 
 class CompactIsland(QWidget):
     expand_requested = pyqtSignal()
@@ -19,6 +42,7 @@ class CompactIsland(QWidget):
         # Music status
         self.music_playing = False
         self.music_title = ""
+        self.music_cover_pixmap: Optional[QPixmap] = None
 
         self._init_ui()
 
@@ -133,9 +157,14 @@ class CompactIsland(QWidget):
 
         self.update_content()
 
-    def set_music_status(self, is_playing: bool, track_title: str):
+    def set_music_status(self, is_playing: bool, track_title: str, cover_bytes: Optional[bytes] = None):
         self.music_playing = is_playing
         self.music_title = track_title
+        if cover_bytes and is_playing:
+            self.music_cover_pixmap = make_rounded_pixmap(cover_bytes, size=20, radius=5)
+        elif not is_playing or not track_title:
+            self.music_cover_pixmap = None
+
         self.mini_play_btn.setVisible(bool(track_title))
         self.mini_play_btn.setIcon(make_pause_icon(10, "#FFFFFF") if is_playing else make_play_icon(11, "#FFFFFF"))
         self.mini_play_btn.setText("")
@@ -190,12 +219,18 @@ class CompactIsland(QWidget):
 
         # 1. If Music is playing, display dynamic waveform and track title!
         if self.music_playing and self.music_title:
-            self.icon_label.setText("🎵")
+            if self.music_cover_pixmap and not self.music_cover_pixmap.isNull():
+                self.icon_label.setPixmap(self.music_cover_pixmap)
+            else:
+                self.icon_label.setPixmap(QPixmap())
+                self.icon_label.setText("🎵")
             title = self.music_title
             if len(title) > 16:
                 title = title[:15] + "..."
             self.ticker_label.setText(f"<span style='color: #38BDF8; font-weight: bold;'>正在播放:</span> {title}")
             return
+
+        self.icon_label.setPixmap(QPixmap())
 
         # 2. Check for active habit reminder (e.g. water drinking, stretch, etc.)
         next_habit = storage.get_next_habit()
@@ -313,9 +348,12 @@ class CompactIsland(QWidget):
                     win.pos(), win.width(), win.height(), cursor_pos, strict_contain=True
                 )
                 win.move(final_pos)
-                storage.update_setting("position_mode", "custom")
-                storage.update_setting("custom_pos_x", final_pos.x())
-                storage.update_setting("custom_pos_y", final_pos.y())
+                if hasattr(win, "_save_dragged_position"):
+                    win._save_dragged_position(final_pos)
+                else:
+                    storage.update_setting("position_mode", "custom")
+                    storage.update_setting("custom_pos_x", final_pos.x())
+                    storage.update_setting("custom_pos_y", final_pos.y())
                 self._is_dragging = False
                 self._drag_start_pos = None
                 event.accept()
