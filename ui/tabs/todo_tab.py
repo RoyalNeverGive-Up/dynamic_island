@@ -329,9 +329,20 @@ class TodoTab(QWidget):
         self._update_filter_button_styles()
         main_layout.addLayout(filter_box)
 
-        # 3. Category Filter Bar (Compact chips)
-        cat_filter_row = QHBoxLayout()
+        # 3. Category Filter Bar (Compact scrollable chips)
+        self.cat_scroll = QScrollArea()
+        self.cat_scroll.setFixedHeight(30)
+        self.cat_scroll.setWidgetResizable(True)
+        self.cat_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.cat_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.cat_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        cat_container = QWidget()
+        cat_container.setStyleSheet("background: transparent;")
+        cat_filter_row = QHBoxLayout(cat_container)
+        cat_filter_row.setContentsMargins(0, 0, 0, 0)
         cat_filter_row.setSpacing(4)
+
         cat_lbl = QLabel("分类:")
         cat_lbl.setStyleSheet("color: #94A3B8; font-size: 11px; font-weight: 600;")
         cat_filter_row.addWidget(cat_lbl)
@@ -348,7 +359,8 @@ class TodoTab(QWidget):
 
         cat_filter_row.addStretch()
         self._update_cat_button_styles()
-        main_layout.addLayout(cat_filter_row)
+        self.cat_scroll.setWidget(cat_container)
+        main_layout.addWidget(self.cat_scroll)
 
         # 4. Scrollable List Area (Now gets 380px+ vertical height!)
         self.scroll_area = QScrollArea()

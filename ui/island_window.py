@@ -151,13 +151,26 @@ class IslandWindow(QWidget):
             if hint_w > compact_content_w:
                 compact_content_w = hint_w
         compact_w = compact_content_w + 2 * margin
+        compact_h = COMPACT_HEIGHT + 2 * margin
+
+        exp_content_w = EXPANDED_WIDTH
+        exp_content_h = EXPANDED_HEIGHT
+        if hasattr(self, "dashboard_view") and self.dashboard_view:
+            exp_min_w = self.dashboard_view.minimumSizeHint().width()
+            if exp_min_w > exp_content_w:
+                exp_content_w = exp_min_w
+            exp_min_h = self.dashboard_view.minimumSizeHint().height()
+            if exp_min_h > exp_content_h:
+                exp_content_h = exp_min_h
+        exp_w = exp_content_w + 2 * margin
+        exp_h = exp_content_h + 2 * margin
 
         if state == self.STATE_COMPACT:
-            w, h = compact_w, COMPACT_HEIGHT + 2 * margin
+            w, h = compact_w, compact_h
         elif state == self.STATE_ALERT:
             w, h = ALERT_WIDTH + 2 * margin, ALERT_HEIGHT + 2 * margin
         else:
-            w, h = EXPANDED_WIDTH + 2 * margin, EXPANDED_HEIGHT + 2 * margin
+            w, h = exp_w, exp_h
 
         if mode == "custom":
             settings = storage.get_settings()
@@ -167,8 +180,6 @@ class IslandWindow(QWidget):
                 screen = get_screen_at_point(QPoint(saved_x + margin + 10, saved_y + margin + 10))
                 s_geom = screen.geometry()
                 s_avail = screen.availableGeometry()
-
-                compact_h = COMPACT_HEIGHT + 2 * margin
 
                 # Horizontal positioning:
                 # If placed in the right half of the screen, anchor to the capsule's right edge!
@@ -191,7 +202,14 @@ class IslandWindow(QWidget):
                 min_x = s_geom.left() - margin
                 max_x = s_geom.right() + 1 - w + margin
                 min_y = s_geom.top() - margin
-                max_y = s_geom.bottom() + 1 - h + margin if state == self.STATE_COMPACT else max(min_y, s_avail.bottom() + 1 - h + margin)
+
+                max_screen_y = s_geom.bottom() + 1 - h + margin
+                max_avail_y = max(min_y, s_avail.bottom() + 1 - h + margin)
+                # If capsule itself was placed below available work area (e.g. in taskbar zone), allow window to touch screen bottom
+                if (saved_y + compact_h - margin) > s_avail.bottom() or state == self.STATE_COMPACT:
+                    max_y = max_screen_y
+                else:
+                    max_y = max_avail_y
 
                 x = max(min_x, min(max_x, x))
                 y = max(min_y, min(max_y, y))
@@ -307,6 +325,7 @@ class IslandWindow(QWidget):
             self.anim.start()
         else:
             self.setGeometry(target_geom)
+            self.resize(target_geom.size())
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -314,21 +333,22 @@ class IslandWindow(QWidget):
             # In EXPANDED mode, allow dragging exclusively on the top header bar (Y < 75px)
             can_drag = (self.state == self.STATE_COMPACT) or (self.state == self.STATE_EXPANDED and event.position().y() <= 75)
             if can_drag:
+                self.drag_start_pos = event.globalPosition().toPoint()
                 self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-                self.is_dragging = True
+                self.is_dragging = False
                 event.accept()
                 return
         super().mousePressEvent(event)
 
     def _save_dragged_position(self, final_pos: QPoint):
         margin = SHADOW_MARGIN
-        compact_h = COMPACT_HEIGHT + 2 * margin
         compact_content_w = COMPACT_WIDTH
         if hasattr(self, "compact_view") and self.compact_view:
             hint_w = self.compact_view.sizeHint().width()
             if hint_w > compact_content_w:
                 compact_content_w = hint_w
         compact_w = compact_content_w + 2 * margin
+        compact_h = COMPACT_HEIGHT + 2 * margin
 
         screen = get_screen_at_point(QPoint(final_pos.x() + margin + 10, final_pos.y() + margin + 10))
         s_geom = screen.geometry()
@@ -348,29 +368,41 @@ class IslandWindow(QWidget):
         storage.update_setting("custom_pos_y", save_y)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        if self.is_dragging and self.drag_position:
+        if self.drag_position and (event.buttons() & Qt.MouseButton.LeftButton):
             cursor_pos = event.globalPosition().toPoint()
-            new_pos = cursor_pos - self.drag_position
-            clamped_pos = clamp_window_to_edges(
-                new_pos, self.width(), self.height(), cursor_pos, snap_distance=16, strict_contain=False
-            )
-            self.move(clamped_pos)
-            self._save_dragged_position(clamped_pos)
-            event.accept()
-            return
+            if not self.is_dragging and hasattr(self, "drag_start_pos") and self.drag_start_pos:
+                delta = cursor_pos - self.drag_start_pos
+                if delta.manhattanLength() >= 5:
+                    self.is_dragging = True
+
+            if self.is_dragging:
+                new_pos = cursor_pos - self.drag_position
+                clamped_pos = clamp_window_to_edges(
+                    new_pos, self.width(), self.height(), cursor_pos, snap_distance=16, strict_contain=False
+                )
+                self.move(clamped_pos)
+                self._save_dragged_position(clamped_pos)
+                event.accept()
+                return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        if self.is_dragging:
-            cursor_pos = event.globalPosition().toPoint()
-            final_pos = clamp_window_to_edges(
-                self.pos(), self.width(), self.height(), cursor_pos, strict_contain=True
-            )
-            self.move(final_pos)
-            self._save_dragged_position(final_pos)
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.is_dragging:
+                cursor_pos = event.globalPosition().toPoint()
+                final_pos = clamp_window_to_edges(
+                    self.pos(), self.width(), self.height(), cursor_pos, strict_contain=True
+                )
+                self.move(final_pos)
+                self._save_dragged_position(final_pos)
+                self.is_dragging = False
+                self.drag_position = None
+                self.drag_start_pos = None
+                event.accept()
+                return
             self.is_dragging = False
-            event.accept()
-            return
+            self.drag_position = None
+            self.drag_start_pos = None
         super().mouseReleaseEvent(event)
 
     def resizeEvent(self, event: QResizeEvent):

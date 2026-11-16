@@ -1,8 +1,9 @@
 from datetime import datetime
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QApplication
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPoint, QSize
 from PyQt6.QtGui import QFont, QMouseEvent, QPainter, QPainterPath, QPixmap
 from typing import Optional
+from config import COMPACT_WIDTH, COMPACT_HEIGHT
 from storage import storage, format_repeat_display, get_habit_presentation
 from ui.styles import THEME
 from ui.screen_utils import clamp_window_to_edges
@@ -52,6 +53,9 @@ class CompactIsland(QWidget):
         self.ticker_timer.timeout.connect(self.update_content)
         self.ticker_timer.start()
 
+    def sizeHint(self) -> QSize:
+        return QSize(COMPACT_WIDTH, COMPACT_HEIGHT)
+
     def _init_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 0, 12, 0)
@@ -78,6 +82,7 @@ class CompactIsland(QWidget):
 
         # 3. Center High-Contrast Ticker
         self.ticker_label = QLabel("灵动岛准备就绪")
+        self.ticker_label.setMinimumWidth(0)
         self.ticker_label.setStyleSheet("""
             color: #FFFFFF;
             font-size: 12px;

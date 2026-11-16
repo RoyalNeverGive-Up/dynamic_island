@@ -544,7 +544,10 @@ class TestDynamicIsland(unittest.TestCase):
         self.assertIsNone(cover_w.pixmap)
         cover_w.close()
 
-        # 4. Test bottom-right docking expand/collapse has 0 shift
+        # 4. Test bottom-right docking expand, click, and collapse has 0 overflow and 0 shift
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtGui import QMouseEvent
+
         island = IslandWindow(SystemMonitor(), MusicService())
         island.show()
         s_geom = island.screen().geometry()
@@ -561,15 +564,29 @@ class TestDynamicIsland(unittest.TestCase):
 
         # Expand to dashboard
         island.expand_to_dashboard()
-        island.anim.stop()
-        island.setGeometry(island.anim.endValue())
+        while island.anim.state() == island.anim.State.Running:
+            QApplication.processEvents()
+
+        # Assert no right side screen overflow
+        visual_right = island.geometry().right() - margin
+        self.assertLessEqual(visual_right, s_geom.right(), "Expanded window exceeds right edge of screen!")
+
+        # Simulate click on page (must not shift window)
+        exp_pos_before = island.pos()
+        click_press = QMouseEvent(QMouseEvent.Type.MouseButtonPress, QPointF(100, 30), QPointF(island.x() + 100, island.y() + 30), Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        island.mousePressEvent(click_press)
+        click_release = QMouseEvent(QMouseEvent.Type.MouseButtonRelease, QPointF(100, 30), QPointF(island.x() + 100, island.y() + 30), Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+        island.mouseReleaseEvent(click_release)
+        QApplication.processEvents()
+        self.assertEqual(island.pos(), exp_pos_before, "Window shifted on click!")
 
         # Collapse back to compact
         island.collapse_to_compact()
-        island.anim.stop()
-        island.setGeometry(island.anim.endValue())
+        while island.anim.state() == island.anim.State.Running:
+            QApplication.processEvents()
 
         self.assertEqual(island.x(), right_x, "Bottom-right X shifted after expand/collapse!")
+        self.assertEqual(island.geometry().right() - margin, s_geom.right(), "Capsule right edge not aligned to screen edge!")
         island.close()
 
 if __name__ == "__main__":
