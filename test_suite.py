@@ -500,5 +500,140 @@ class TestDynamicIsland(unittest.TestCase):
         self.assertEqual(custom_dlg.value(), 75)
         custom_dlg.close()
 
+    def test_16_screen_lock_mute_and_resume(self):
+        from reminder_service import ReminderService, is_windows_screen_locked
+        from unittest.mock import patch
+        # 1. Direct function check returns boolean
+        locked = is_windows_screen_locked()
+        self.assertIsInstance(locked, bool)
+
+        # 2. Service lock state & mute behavior (Use in-memory mock to avoid touching user's real alarms file)
+        service = ReminderService()
+        service.timer.stop()  # Stop internal timer for manual step testing
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        mock_alarm = {
+            "id": "mock-screen-lock-test-id",
+            "title": "单元测试模拟闹钟",
+            "time": now_str.split(" ")[-1],
+            "repeat_type": "daily",
+            "next_trigger": now_str,
+            "enabled": True,
+            "reminded": False
+        }
+
+        triggered_items = []
+        service.reminder_triggered.connect(lambda item: triggered_items.append(item))
+
+        with patch("storage.storage.get_alarms", return_value=[mock_alarm]):
+            # Test locked: must not trigger
+            service.set_screen_locked(True)
+            self.assertTrue(service.is_screen_locked())
+            service._check_reminders()
+            self.assertEqual(len(triggered_items), 0, "Alarm should NOT trigger while screen is locked")
+
+            # Test unlocked: must trigger
+            service.set_screen_locked(False)
+            self.assertFalse(service._session_locked)
+            service._check_reminders()
+            self.assertEqual(len(triggered_items), 1, "Alarm should trigger upon unlock")
+            self.assertEqual(triggered_items[0]["id"], mock_alarm["id"])
+
+    def test_17_card_accordion_expansion(self):
+        from ui.tabs.alarm_tab import AlarmCard, AlarmTab
+        from ui.tabs.habit_tab import HabitCard, HabitTab
+        from ui.tabs.todo_tab import TaskCard, TodoTab
+
+        # 1. Test AlarmCard & AlarmTab Accordion
+        alarm1 = {"id": "a-1", "title": "晨会闹钟", "time": "09:00", "repeat_type": "workday", "enabled": True}
+        alarm2 = {"id": "a-2", "title": "下午总结", "time": "17:30", "repeat_type": "daily", "enabled": True}
+        card_a1 = AlarmCard(alarm1)
+        card_a2 = AlarmCard(alarm2)
+
+        self.assertFalse(card_a1.is_expanded)
+        self.assertTrue(card_a1.detail_widget.isHidden())
+        self.assertEqual(card_a1.expand_btn.text(), "展开 ∨")
+
+        # Expand card 1
+        card_a1.set_expanded(True)
+        self.assertTrue(card_a1.is_expanded)
+        self.assertFalse(card_a1.detail_widget.isHidden())
+        self.assertEqual(card_a1.expand_btn.text(), "收起 ∧")
+
+        # Test AlarmTab accordion mutual exclusion
+        tab_a = AlarmTab()
+        tab_a.list_layout.insertWidget(0, card_a1)
+        tab_a.list_layout.insertWidget(1, card_a2)
+        card_a1.expanded_changed.connect(tab_a._on_card_expanded)
+        card_a2.expanded_changed.connect(tab_a._on_card_expanded)
+
+        card_a2.set_expanded(True)
+        self.assertTrue(card_a2.is_expanded)
+        self.assertFalse(card_a1.is_expanded, "Card 1 should automatically collapse when Card 2 expands")
+
+        # 2. Test HabitCard & HabitTab Accordion
+        habit1 = {"id": "h-1", "title": "定时喝水 💧", "start_time": "09:00", "end_time": "18:00", "default_interval": 45, "enabled": True}
+        habit2 = {"id": "h-2", "title": "久坐拉伸 🧘", "start_time": "10:00", "end_time": "19:00", "default_interval": 60, "enabled": True}
+        card_h1 = HabitCard(habit1)
+        card_h2 = HabitCard(habit2)
+
+        self.assertFalse(card_h1.is_expanded)
+        card_h1.set_expanded(True)
+        self.assertTrue(card_h1.is_expanded)
+        self.assertFalse(card_h1.detail_widget.isHidden())
+
+        tab_h = HabitTab()
+        tab_h.list_layout.insertWidget(0, card_h1)
+        tab_h.list_layout.insertWidget(1, card_h2)
+        card_h1.expanded_changed.connect(tab_h._on_card_expanded)
+        card_h2.expanded_changed.connect(tab_h._on_card_expanded)
+
+        card_h2.set_expanded(True)
+        self.assertTrue(card_h2.is_expanded)
+        self.assertFalse(card_h1.is_expanded, "Habit Card 1 should collapse when Habit Card 2 expands")
+
+        # 3. Test TaskCard & TodoTab Accordion
+        todo1 = {"id": "t-1", "title": "提交代码审查", "priority": "high", "category": "工作", "completed": False}
+        todo2 = {"id": "t-2", "title": "回复客户邮件", "priority": "medium", "category": "工作", "completed": False}
+        card_t1 = TaskCard(todo1)
+        card_t2 = TaskCard(todo2)
+
+        self.assertFalse(card_t1.is_expanded)
+        card_t1.set_expanded(True)
+        self.assertTrue(card_t1.is_expanded)
+        self.assertFalse(card_t1.detail_widget.isHidden())
+
+        tab_t = TodoTab()
+        tab_t.list_layout.insertWidget(0, card_t1)
+        tab_t.list_layout.insertWidget(1, card_t2)
+        card_t1.expanded_changed.connect(tab_t._on_card_expanded)
+        card_t2.expanded_changed.connect(tab_t._on_card_expanded)
+
+        card_t2.set_expanded(True)
+        self.assertTrue(card_t2.is_expanded)
+        self.assertFalse(card_t1.is_expanded, "Task Card 1 should collapse when Task Card 2 expands")
+
+        # 4. Test Mouse Click Event on all cards
+        from PyQt6.QtGui import QMouseEvent
+        from PyQt6.QtCore import QPointF
+        press_ev = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(100, 20),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier
+        )
+        card_h1.set_expanded(False)
+        card_h1.mousePressEvent(press_ev)
+        self.assertTrue(card_h1.is_expanded)
+
+        card_a1.set_expanded(False)
+        card_a1.mousePressEvent(press_ev)
+        self.assertTrue(card_a1.is_expanded)
+
+        card_t1.set_expanded(False)
+        card_t1.mousePressEvent(press_ev)
+        self.assertTrue(card_t1.is_expanded)
+
 if __name__ == "__main__":
     unittest.main()

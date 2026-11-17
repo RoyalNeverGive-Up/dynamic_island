@@ -50,6 +50,15 @@ QScrollBar::handle:vertical:hover {{
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
+QScrollBar:horizontal {{
+    height: 0px;
+    border: none;
+    background: transparent;
+}}
+QScrollBar::handle:horizontal, QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0px;
+    height: 0px;
+}}
 
 /* Line Edit / Input */
 QLineEdit, QTextEdit, QPlainTextEdit {{

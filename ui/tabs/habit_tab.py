@@ -3,7 +3,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QFrame, QComboBox, QMenu,
-    QProgressBar, QSizePolicy, QInputDialog
+    QProgressBar, QSizePolicy, QInputDialog, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from storage import storage, get_habit_presentation
@@ -18,27 +18,37 @@ class HabitCard(QFrame):
     checkin = pyqtSignal(str, int)         # habit_id, next_interval_minutes
     edited = pyqtSignal(str)               # habit_id
     deleted = pyqtSignal(str)              # habit_id
+    expanded_changed = pyqtSignal(str, bool) # habit_id, is_expanded
 
     def __init__(self, habit: dict, parent=None):
         super().__init__(parent)
         self.habit = habit
+        self.is_expanded = False
         self.setObjectName("HabitCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._init_ui()
 
     def _init_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(12)
+        card_layout = QVBoxLayout(self)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setSpacing(8)
 
         is_enabled = self.habit.get("enabled", True)
         habit_info = get_habit_presentation(self.habit)
         icon = habit_info["icon"]
         unit = habit_info["unit"]
+        interval = self.habit.get("default_interval", 45)
         now = datetime.now()
         now_time_str = now.strftime("%H:%M")
         start_t = self.habit.get("start_time", "09:00")
         end_t = self.habit.get("end_time", "18:00")
         in_window = start_t <= now_time_str <= end_t
+
+        # --- 1. Header Row (Always visible) ---
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(10)
 
         # 1. Left iOS Toggle Switch
         switch_box = QVBoxLayout()
@@ -49,114 +59,190 @@ class HabitCard(QFrame):
         self.toggle_switch.setToolTip("开启或暂停该循环提醒")
         self.toggle_switch.toggled.connect(lambda chk: self.toggled.emit(self.habit["id"]))
         switch_box.addWidget(self.toggle_switch)
-        layout.addLayout(switch_box)
+        header_layout.addLayout(switch_box)
 
         # 2. Middle Content
         info_layout = QVBoxLayout()
         info_layout.setSpacing(6)
 
-        # Row 1: Time Range + Title + Status Badge
+        # Row 1: Title (Expanding, full space on single line) + Status Badge
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
-        title_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-
-        range_badge = QLabel(f"{start_t} ~ {end_t}")
-        range_badge.setStyleSheet(f"""
-            font-size: 13px;
-            font-weight: 700;
-            color: {'#38BDF8' if is_enabled else '#64748B'};
-            background: {'rgba(56, 189, 248, 0.15)' if is_enabled else 'rgba(255, 255, 255, 0.05)'};
-            border: 1px solid {'rgba(56, 189, 248, 0.35)' if is_enabled else 'rgba(255, 255, 255, 0.1)'};
-            padding: 2px 7px;
-            border-radius: 6px;
-        """)
-        title_row.addWidget(range_badge)
 
         self.title_lbl = QLabel(self.habit.get("title", ""))
         self.title_lbl.setStyleSheet(f"""
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 700;
             color: {'#FFFFFF' if is_enabled else '#94A3B8'};
+            min-height: 24px;
+            padding: 1px 0px;
         """)
-        self.title_lbl.setWordWrap(True)
-        title_row.addWidget(self.title_lbl, 1)
+        self.title_lbl.setWordWrap(False)
+        self.title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        title_row.addWidget(self.title_lbl, 1, Qt.AlignmentFlag.AlignVCenter)
 
         # Status badge
         if not is_enabled:
             status_badge = QLabel("⏸️ 已暂停")
-            status_badge.setStyleSheet("color: #94A3B8; background: rgba(255,255,255,0.06); font-size: 11px; padding: 2px 7px; border-radius: 6px;")
+            status_badge.setStyleSheet("color: #94A3B8; background: rgba(255,255,255,0.06); font-size: 11px; padding: 2px 7px; border-radius: 6px; min-height: 20px;")
         elif not in_window:
             status_badge = QLabel("🌙 时段外休眠")
-            status_badge.setStyleSheet("color: #A78BFA; background: rgba(167, 139, 250, 0.15); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px;")
+            status_badge.setStyleSheet("color: #A78BFA; background: rgba(167, 139, 250, 0.15); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; min-height: 20px;")
         else:
             status_badge = QLabel("🟢 循环运行中")
-            status_badge.setStyleSheet("color: #34D399; background: rgba(52, 211, 153, 0.18); font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px;")
-        title_row.addWidget(status_badge)
+            status_badge.setStyleSheet("color: #34D399; background: rgba(52, 211, 153, 0.18); font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; min-height: 20px;")
+        title_row.addWidget(status_badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
         info_layout.addLayout(title_row)
 
-        # Row 2: Next Trigger + Progress + Default interval
+        # Row 2: Time Range + Progress + Next Trigger Badges (Streamlined to prevent right clipping)
         meta_row = QHBoxLayout()
-        meta_row.setSpacing(8)
-        meta_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        meta_row.setSpacing(6)
 
-        next_trig = self.habit.get("next_trigger")
-        if next_trig and is_enabled:
-            next_t_str = next_trig.split(" ")[-1]
-            next_lbl = QLabel(f"⏰ 下次: {next_t_str}")
-            next_lbl.setStyleSheet("color: #FBBF24; font-size: 11px; font-weight: 700; background: rgba(251, 191, 36, 0.15); padding: 2px 6px; border-radius: 5px;")
-            meta_row.addWidget(next_lbl)
-
-        interval = self.habit.get("default_interval", 45)
-        int_lbl = QLabel(f"🔄 默认每 {interval} 分钟")
-        int_lbl.setStyleSheet("color: #CBD5E1; font-size: 11px; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 5px;")
-        meta_row.addWidget(int_lbl)
+        range_badge = QLabel(f"🕒 {start_t}-{end_t}")
+        range_badge.setStyleSheet(f"""
+            font-size: 11px;
+            font-weight: 600;
+            color: {'#38BDF8' if is_enabled else '#64748B'};
+            background: {'rgba(56, 189, 248, 0.15)' if is_enabled else 'rgba(255, 255, 255, 0.05)'};
+            border: 1px solid {'rgba(56, 189, 248, 0.35)' if is_enabled else 'rgba(255, 255, 255, 0.1)'};
+            padding: 2px 6px;
+            border-radius: 6px;
+            min-height: 20px;
+        """)
+        meta_row.addWidget(range_badge)
 
         # Progress badge
         c = self.habit.get("today_count", 0)
         target = self.habit.get("target_count", 8)
-        prog_badge = QLabel(f"{icon} 今日 {c}/{target} {unit}")
+        prog_badge = QLabel(f"{icon} {c}/{target}{unit}")
         prog_badge.setStyleSheet(f"""
             color: {habit_info['color']};
             background: rgba(56, 189, 248, 0.15);
             font-size: 11px;
             font-weight: 700;
-            padding: 2px 7px;
-            border-radius: 5px;
+            padding: 2px 6px;
+            border-radius: 6px;
+            min-height: 20px;
         """)
         meta_row.addWidget(prog_badge)
 
-        last_c = self.habit.get("last_checkin_at")
-        if last_c:
-            last_t = last_c.split(" ")[-1]
-            last_lbl = QLabel(f"上次: {last_t[:5]}")
-            last_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
-            meta_row.addWidget(last_lbl)
+        next_trig = self.habit.get("next_trigger")
+        if next_trig and is_enabled:
+            next_t_str = next_trig.split(" ")[-1]
+            next_lbl = QLabel(f"⏰ {next_t_str}")
+            next_lbl.setStyleSheet("color: #FBBF24; font-size: 11px; font-weight: 700; background: rgba(251, 191, 36, 0.15); padding: 2px 6px; border-radius: 6px; min-height: 20px;")
+            meta_row.addWidget(next_lbl)
 
         meta_row.addStretch()
         info_layout.addLayout(meta_row)
 
-        layout.addLayout(info_layout, 1)
+        header_layout.addLayout(info_layout, 1)
 
-        # 3. Action Buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(6)
-        btn_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        # 3. Right Expand Indicator Pill
+        self.expand_btn = QPushButton("展开 ∨")
+        self.expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.expand_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                color: #94A3B8;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                padding: 3px 8px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: rgba(56, 189, 248, 0.18);
+                color: #38BDF8;
+                border-color: rgba(56, 189, 248, 0.4);
+            }
+        """)
+        self.expand_btn.clicked.connect(self.toggle_expanded)
+        header_layout.addWidget(self.expand_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        card_layout.addWidget(header_widget)
+
+        # --- 2. Expanded Detail Panel (Hidden by default) ---
+        self.detail_widget = QWidget()
+        self.detail_widget.setVisible(False)
+        detail_layout = QVBoxLayout(self.detail_widget)
+        detail_layout.setContentsMargins(0, 4, 0, 0)
+        detail_layout.setSpacing(8)
+
+        # Details Box
+        details_box = QFrame()
+        details_box.setStyleSheet("""
+            QFrame {
+                background: rgba(0, 0, 0, 0.28);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+            }
+        """)
+        box_layout = QVBoxLayout(details_box)
+        box_layout.setContentsMargins(10, 8, 10, 8)
+        box_layout.setSpacing(6)
+
+        last_c = self.habit.get("last_checkin_at", "暂无记录")
+        next_full = self.habit.get("next_trigger", "未在提醒时段")
+
+        # Row 1: Interval and trigger details
+        row1 = QHBoxLayout()
+        row1.setSpacing(12)
+        int_desc = QLabel(f"🔄 默认间隔: {interval}分钟")
+        int_desc.setStyleSheet("color: #CBD5E1; font-size: 11px; font-weight: 600;")
+        row1.addWidget(int_desc)
+
+        next_full_lbl = QLabel(f"⏰ 下次: {next_full}")
+        next_full_lbl.setStyleSheet("color: #FBBF24; font-size: 11px; font-weight: 600;")
+        row1.addWidget(next_full_lbl)
+
+        row1.addStretch()
+        box_layout.addLayout(row1)
+
+        # Row 2: Target & Last Checkin
+        row2 = QHBoxLayout()
+        row2.setSpacing(12)
+        target_lbl = QLabel(f"🎯 每日目标: {c}/{target} {unit}")
+        target_lbl.setStyleSheet(f"color: {habit_info['color']}; font-size: 11px; font-weight: 700;")
+        row2.addWidget(target_lbl)
+
+        last_lbl = QLabel(f"📅 上次: {last_c}")
+        last_lbl.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        row2.addWidget(last_lbl)
+
+        row2.addStretch()
+        box_layout.addLayout(row2)
+
+        # Row 3: Description if available
+        desc = self.habit.get("description", "").strip()
+        if desc:
+            desc_lbl = QLabel(f"📝 习惯说明: {desc}")
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setStyleSheet("color: #CBD5E1; font-size: 11px; line-height: 1.4;")
+            box_layout.addWidget(desc_lbl)
+
+        detail_layout.addWidget(details_box)
+
+        # Dedicated Action Button Row
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 4, 0, 0)
+        action_row.setSpacing(8)
 
         # Dynamic Checkin Button
-        self.checkin_btn = QPushButton(f"{icon} 打卡 +1")
+        self.checkin_btn = QPushButton(f"{icon} 立即打卡 +1")
+        self.checkin_btn.setFixedHeight(30)
         self.checkin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.checkin_btn.setToolTip("记录打卡，并自选下一次提醒间隔")
         self.checkin_btn.setStyleSheet(f"""
             QPushButton {{
-                background: rgba(56, 189, 248, 0.18);
+                background: rgba(56, 189, 248, 0.2);
                 color: {habit_info['color']};
-                border: 1px solid rgba(56, 189, 248, 0.4);
-                border-radius: 7px;
-                padding: 5px 12px;
+                border: 1px solid rgba(56, 189, 248, 0.45);
+                border-radius: 6px;
+                padding: 4px 12px;
                 font-size: 12px;
                 font-weight: 700;
-                min-height: 24px;
             }}
             QPushButton:hover {{
                 background: {habit_info['color']};
@@ -164,39 +250,111 @@ class HabitCard(QFrame):
             }}
         """)
         self.checkin_btn.clicked.connect(self._show_checkin_menu)
-        btn_layout.addWidget(self.checkin_btn)
+        action_row.addWidget(self.checkin_btn)
+
+        action_row.addStretch()
 
         # Edit button
-        edit_btn = QPushButton("✏️")
-        edit_btn.setFixedSize(30, 30)
+        edit_btn = QPushButton("✏️ 修改")
+        edit_btn.setFixedHeight(30)
         edit_btn.setToolTip("编辑提醒时段与目标")
         edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        edit_btn.setStyleSheet("border-radius: 6px; padding: 0;")
+        edit_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(56, 189, 248, 0.18);
+                color: #38BDF8;
+                border: 1px solid rgba(56, 189, 248, 0.4);
+                border-radius: 6px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #38BDF8;
+                color: #000000;
+            }
+        """)
         edit_btn.clicked.connect(lambda: self.edited.emit(self.habit["id"]))
-        btn_layout.addWidget(edit_btn)
+        action_row.addWidget(edit_btn)
 
         # Delete button
-        del_btn = QPushButton("🗑️")
-        del_btn.setFixedSize(30, 30)
-        del_btn.setToolTip("删除循环提醒")
+        del_btn = QPushButton("🗑️ 删除")
+        del_btn.setFixedHeight(30)
+        del_btn.setToolTip("删除此循环习惯提醒")
         del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        del_btn.setStyleSheet("border-radius: 6px; padding: 0;")
-        del_btn.clicked.connect(lambda: self.deleted.emit(self.habit["id"]))
-        btn_layout.addWidget(del_btn)
-
-        layout.addLayout(btn_layout)
-
-        self.setStyleSheet(f"""
-            QFrame#HabitCard {{
-                background-color: {THEME['bg_card']};
-                border: 1px solid {THEME['border_light']};
-                border-radius: 12px;
-            }}
-            QFrame#HabitCard:hover {{
-                border-color: rgba(56, 189, 248, 0.4);
-                background-color: {THEME['bg_card_hover']};
-            }}
+        del_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(239, 68, 68, 0.18);
+                color: #EF4444;
+                border: 1px solid rgba(239, 68, 68, 0.35);
+                border-radius: 6px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #EF4444;
+                color: #FFFFFF;
+            }
         """)
+        del_btn.clicked.connect(lambda: self.deleted.emit(self.habit["id"]))
+        action_row.addWidget(del_btn)
+
+        detail_layout.addLayout(action_row)
+        card_layout.addWidget(self.detail_widget)
+
+        self._update_card_style()
+
+    def toggle_expanded(self):
+        self.set_expanded(not self.is_expanded)
+
+    def set_expanded(self, expanded: bool):
+        if self.is_expanded == expanded:
+            return
+        self.is_expanded = expanded
+        self.detail_widget.setVisible(expanded)
+        self.expand_btn.setText("收起 ∧" if expanded else "展开 ∨")
+        self._update_card_style()
+        self.updateGeometry()
+        self.expanded_changed.emit(self.habit["id"], expanded)
+
+    def _update_card_style(self):
+        if self.is_expanded:
+            self.setStyleSheet(f"""
+                QFrame#HabitCard {{
+                    background-color: #1A2135;
+                    border: 1.5px solid #38BDF8;
+                    border-radius: 12px;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#HabitCard {{
+                    background-color: {THEME['bg_card']};
+                    border: 1px solid {THEME['border_light']};
+                    border-radius: 12px;
+                }}
+                QFrame#HabitCard:hover {{
+                    border-color: rgba(56, 189, 248, 0.4);
+                    background-color: {THEME['bg_card_hover']};
+                }}
+            """)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            child = self.childAt(pos)
+            if child and child not in (self, self.expand_btn):
+                if isinstance(child, ToggleSwitch):
+                    super().mousePressEvent(event)
+                    return
+                if self.is_expanded and isinstance(child, (QPushButton, QComboBox, QCheckBox)):
+                    super().mousePressEvent(event)
+                    return
+            self.toggle_expanded()
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def _show_checkin_menu(self):
         menu = QMenu(self)
@@ -376,6 +534,8 @@ class HabitTab(QWidget):
         # 3. Scrollable Habits List Area
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -480,7 +640,16 @@ class HabitTab(QWidget):
             card.checkin.connect(self._on_checkin_habit)
             card.edited.connect(self._on_edit_habit)
             card.deleted.connect(self._on_delete_habit)
+            card.expanded_changed.connect(self._on_card_expanded)
             self.list_layout.insertWidget(self.list_layout.count() - 1, card)
+
+    def _on_card_expanded(self, habit_id: str, is_expanded: bool):
+        if is_expanded:
+            for i in range(self.list_layout.count()):
+                item = self.list_layout.itemAt(i)
+                w = item.widget() if item else None
+                if isinstance(w, HabitCard) and w.habit.get("id") != habit_id:
+                    w.set_expanded(False)
 
     def _on_toggle_habit(self, habit_id: str):
         storage.toggle_habit_enabled(habit_id)

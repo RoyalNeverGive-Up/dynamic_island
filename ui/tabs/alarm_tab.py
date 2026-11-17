@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QFrame, QComboBox, QMenu,
-    QMessageBox, QSizePolicy
+    QMessageBox, QSizePolicy, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from storage import storage, format_alarm_repeat, calculate_next_occurrence
@@ -22,20 +22,29 @@ class AlarmCard(QFrame):
     cancel_snooze = pyqtSignal(str) # alarm_id
     edited = pyqtSignal(str)      # alarm_id
     deleted = pyqtSignal(str)     # alarm_id
+    expanded_changed = pyqtSignal(str, bool) # alarm_id, is_expanded
 
     def __init__(self, alarm: dict, parent=None):
         super().__init__(parent)
         self.alarm = alarm
+        self.is_expanded = False
         self.setObjectName("AlarmCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._init_ui()
 
     def _init_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(12)
+        card_layout = QVBoxLayout(self)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setSpacing(8)
 
         is_enabled = self.alarm.get("enabled", True)
         is_snoozed = bool(self.alarm.get("snooze_until"))
+
+        # --- 1. Header Row (Always visible) ---
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(10)
 
         # 1. Left iOS-style Toggle Switch
         switch_box = QVBoxLayout()
@@ -46,16 +55,15 @@ class AlarmCard(QFrame):
         self.toggle_switch.setToolTip("开启或暂停该周期闹钟")
         self.toggle_switch.toggled.connect(lambda chk: self.toggled.emit(self.alarm["id"]))
         switch_box.addWidget(self.toggle_switch)
-        layout.addLayout(switch_box)
+        header_layout.addLayout(switch_box)
 
-        # 2. Main Content
+        # 2. Main Title & Status Info
         info_layout = QVBoxLayout()
         info_layout.setSpacing(6)
 
         # Row 1: Time Banner + Alarm Title + Status Badge
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
-        title_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         # Crisp High-Contrast Alarm Time
         time_badge = QLabel(self.alarm.get("time", "09:30"))
@@ -68,17 +76,21 @@ class AlarmCard(QFrame):
             padding: 2px 8px;
             border-radius: 6px;
             letter-spacing: 0.5px;
+            min-height: 20px;
         """)
-        title_row.addWidget(time_badge)
+        title_row.addWidget(time_badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.title_lbl = QLabel(self.alarm.get("title", ""))
         self.title_lbl.setStyleSheet(f"""
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 700;
             color: {'#FFFFFF' if is_enabled else '#94A3B8'};
+            min-height: 24px;
+            padding: 1px 0px;
         """)
-        self.title_lbl.setWordWrap(True)
-        title_row.addWidget(self.title_lbl, 1)
+        self.title_lbl.setWordWrap(False)
+        self.title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        title_row.addWidget(self.title_lbl, 1, Qt.AlignmentFlag.AlignVCenter)
 
         # Status badge (Active / Paused / Snoozed)
         if is_snoozed:
@@ -91,8 +103,9 @@ class AlarmCard(QFrame):
                 font-weight: 700;
                 padding: 2px 7px;
                 border-radius: 6px;
+                min-height: 20px;
             """)
-            title_row.addWidget(snooze_lbl)
+            title_row.addWidget(snooze_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
         elif is_enabled:
             status_badge = QLabel("🔔 运行中")
             status_badge.setStyleSheet("""
@@ -103,8 +116,9 @@ class AlarmCard(QFrame):
                 font-weight: 700;
                 padding: 2px 7px;
                 border-radius: 6px;
+                min-height: 20px;
             """)
-            title_row.addWidget(status_badge)
+            title_row.addWidget(status_badge, 0, Qt.AlignmentFlag.AlignVCenter)
         else:
             paused_badge = QLabel("⏸️ 已暂停")
             paused_badge.setStyleSheet("""
@@ -115,15 +129,15 @@ class AlarmCard(QFrame):
                 font-weight: 600;
                 padding: 2px 7px;
                 border-radius: 6px;
+                min-height: 20px;
             """)
-            title_row.addWidget(paused_badge)
+            title_row.addWidget(paused_badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
         info_layout.addLayout(title_row)
 
-        # Row 2: Recurrence pill + Next trigger prediction + Note
+        # Row 2: Recurrence pill + Next trigger prediction
         meta_row = QHBoxLayout()
         meta_row.setSpacing(6)
-        meta_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         rep_text = format_alarm_repeat(self.alarm)
         rep_lbl = QLabel(rep_text)
@@ -134,69 +148,127 @@ class AlarmCard(QFrame):
             font-weight: 600;
             padding: 2px 7px;
             border-radius: 6px;
+            min-height: 20px;
         """)
         meta_row.addWidget(rep_lbl)
 
         next_trig = self.alarm.get("next_trigger")
         if next_trig and is_enabled:
-            next_lbl = QLabel(f"⏰ 下次: {next_trig}")
-            next_lbl.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600;")
+            # Display compact next trigger time (e.g. MM-DD HH:mm or HH:mm)
+            next_t_disp = next_trig[5:] if len(next_trig) >= 16 else next_trig
+            next_lbl = QLabel(f"⏰ {next_t_disp}")
+            next_lbl.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600; background: rgba(56, 189, 248, 0.12); padding: 2px 6px; border-radius: 6px; min-height: 20px;")
             meta_row.addWidget(next_lbl)
-
-        desc = self.alarm.get("description", "")
-        if desc:
-            desc_lbl = QLabel(f"📝 {desc[:18]}")
-            desc_lbl.setStyleSheet("color: #94A3B8; font-size: 11px;")
-            meta_row.addWidget(desc_lbl)
 
         meta_row.addStretch()
         info_layout.addLayout(meta_row)
 
-        # Row 3: Check-in streak badge & last checkin record
-        checkin_row = QHBoxLayout()
-        checkin_row.setSpacing(8)
-        checkin_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        header_layout.addLayout(info_layout, 1)
+
+        # 3. Right Expand Indicator Pill
+        self.expand_btn = QPushButton("展开 ∨")
+        self.expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.expand_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                color: #94A3B8;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                padding: 3px 8px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: rgba(56, 189, 248, 0.18);
+                color: #38BDF8;
+                border-color: rgba(56, 189, 248, 0.4);
+            }
+        """)
+        self.expand_btn.clicked.connect(self.toggle_expanded)
+        header_layout.addWidget(self.expand_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        card_layout.addWidget(header_widget)
+
+        # --- 2. Expanded Detail Panel (Hidden by default, shown when selected) ---
+        self.detail_widget = QWidget()
+        self.detail_widget.setVisible(False)
+        detail_layout = QVBoxLayout(self.detail_widget)
+        detail_layout.setContentsMargins(0, 4, 0, 0)
+        detail_layout.setSpacing(8)
+
+        # Details Box (Darker inset container with clear attributes)
+        details_box = QFrame()
+        details_box.setStyleSheet("""
+            QFrame {
+                background: rgba(0, 0, 0, 0.28);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+            }
+        """)
+        box_layout = QVBoxLayout(details_box)
+        box_layout.setContentsMargins(10, 8, 10, 8)
+        box_layout.setSpacing(6)
 
         c_count = self.alarm.get("checkin_count", 0)
-        c_badge = QLabel(f"🎯 已打卡 {c_count} 次")
-        c_badge.setStyleSheet("""
-            color: #F472B6;
-            background: rgba(244, 114, 182, 0.15);
-            border: 1px solid rgba(244, 114, 182, 0.3);
-            font-size: 11px;
-            font-weight: 700;
-            padding: 1px 6px;
-            border-radius: 5px;
-        """)
-        checkin_row.addWidget(c_badge)
+        last_c = self.alarm.get("last_checkin_at", "暂无记录")
+        next_full = self.alarm.get("next_trigger", "暂无安排")
 
-        last_c = self.alarm.get("last_checkin_at")
-        if last_c:
-            last_lbl = QLabel(f"上次打卡: {last_c.split(' ')[0]}")
-            last_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
-            checkin_row.addWidget(last_lbl)
+        # Stats row
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(12)
 
-        checkin_row.addStretch()
-        info_layout.addLayout(checkin_row)
+        c_badge = QLabel(f"🎯 打卡: {c_count}次")
+        c_badge.setStyleSheet("color: #F472B6; font-size: 11px; font-weight: 700;")
+        stats_row.addWidget(c_badge)
 
-        layout.addLayout(info_layout, 1)
+        last_lbl = QLabel(f"📅 上次: {last_c}")
+        last_lbl.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        stats_row.addWidget(last_lbl)
 
-        # 3. Action Buttons (Check-in, Snooze, Edit, Delete)
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(6)
-        btn_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        stats_row.addStretch()
+        box_layout.addLayout(stats_row)
 
-        # Prominent Check-in Button
-        self.checkin_btn = QPushButton("🎯 打卡")
+        # Rule & Trigger row
+        rule_row = QHBoxLayout()
+        rule_row.setSpacing(12)
+        next_exact = QLabel(f"⏰ 预计: {next_full}")
+        next_exact.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600;")
+        rule_row.addWidget(next_exact)
+
+        rep_desc = QLabel(f"🔁 周期: {rep_text}")
+        rep_desc.setStyleSheet("color: #A7F3D0; font-size: 11px;")
+        rule_row.addWidget(rep_desc)
+
+        rule_row.addStretch()
+        box_layout.addLayout(rule_row)
+
+        # Notes / Description if present
+        desc = self.alarm.get("description", "").strip()
+        if desc:
+            desc_lbl = QLabel(f"📝 备注: {desc}")
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setStyleSheet("color: #CBD5E1; font-size: 11px; line-height: 1.4;")
+            box_layout.addWidget(desc_lbl)
+
+        detail_layout.addWidget(details_box)
+
+        # Action Buttons Row (Comfortable, prominent labels, never clipped)
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 4, 0, 0)
+        action_row.setSpacing(8)
+
+        # Check-in Button
+        self.checkin_btn = QPushButton("🎯 立即打卡")
+        self.checkin_btn.setFixedHeight(30)
         self.checkin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.checkin_btn.setToolTip("完成本期打卡，并自动推进到下期响铃")
         self.checkin_btn.setStyleSheet("""
             QPushButton {
                 background: rgba(48, 209, 88, 0.2);
                 color: #30D158;
-                border: 1px solid rgba(48, 209, 88, 0.4);
+                border: 1px solid rgba(48, 209, 88, 0.45);
                 border-radius: 6px;
-                padding: 4px 10px;
+                padding: 4px 12px;
                 font-size: 12px;
                 font-weight: 700;
             }
@@ -206,39 +278,45 @@ class AlarmCard(QFrame):
             }
         """)
         self.checkin_btn.clicked.connect(lambda: self.checkin.emit(self.alarm["id"]))
-        btn_layout.addWidget(self.checkin_btn)
+        action_row.addWidget(self.checkin_btn)
 
         # Snooze Button / Cancel Snooze Button
         if is_snoozed:
-            cancel_snooze_btn = QPushButton("✕ 恢复")
+            cancel_snooze_btn = QPushButton("✕ 恢复正常")
+            cancel_snooze_btn.setFixedHeight(30)
             cancel_snooze_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             cancel_snooze_btn.setToolTip("取消延时状态，恢复正常周期")
             cancel_snooze_btn.setStyleSheet("""
                 QPushButton {
                     background: rgba(239, 68, 68, 0.2);
                     color: #EF4444;
-                    border: 1px solid rgba(239, 68, 68, 0.4);
+                    border: 1px solid rgba(239, 68, 68, 0.45);
                     border-radius: 6px;
-                    padding: 4px 8px;
-                    font-size: 11px;
+                    padding: 4px 10px;
+                    font-size: 12px;
                     font-weight: 700;
+                }
+                QPushButton:hover {
+                    background: #EF4444;
+                    color: #FFFFFF;
                 }
             """)
             cancel_snooze_btn.clicked.connect(lambda: self.cancel_snooze.emit(self.alarm["id"]))
-            btn_layout.addWidget(cancel_snooze_btn)
+            action_row.addWidget(cancel_snooze_btn)
         else:
-            snooze_btn = QPushButton("⏳ 延时")
+            snooze_btn = QPushButton("⏳ 延时贪睡")
+            snooze_btn.setFixedHeight(30)
             snooze_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             snooze_btn.setToolTip("延时贪睡提醒")
             snooze_btn.setStyleSheet("""
                 QPushButton {
-                    background: rgba(251, 191, 36, 0.15);
+                    background: rgba(251, 191, 36, 0.18);
                     color: #FBBF24;
-                    border: 1px solid rgba(251, 191, 36, 0.35);
+                    border: 1px solid rgba(251, 191, 36, 0.4);
                     border-radius: 6px;
-                    padding: 4px 8px;
-                    font-size: 11px;
-                    font-weight: 600;
+                    padding: 4px 10px;
+                    font-size: 12px;
+                    font-weight: 700;
                 }
                 QPushButton:hover {
                     background: #FBBF24;
@@ -246,40 +324,111 @@ class AlarmCard(QFrame):
                 }
             """)
             snooze_btn.clicked.connect(self._show_snooze_menu)
-            btn_layout.addWidget(snooze_btn)
+            action_row.addWidget(snooze_btn)
+
+        action_row.addStretch()
 
         # Edit button
-        edit_btn = QPushButton("✏️")
-        edit_btn.setFixedSize(28, 28)
-        edit_btn.setToolTip("编辑闹钟")
+        edit_btn = QPushButton("✏️ 修改")
+        edit_btn.setFixedHeight(30)
+        edit_btn.setToolTip("编辑闹钟时间与重复规律")
         edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        edit_btn.setStyleSheet("border-radius: 6px; padding: 0;")
+        edit_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(56, 189, 248, 0.18);
+                color: #38BDF8;
+                border: 1px solid rgba(56, 189, 248, 0.4);
+                border-radius: 6px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #38BDF8;
+                color: #000000;
+            }
+        """)
         edit_btn.clicked.connect(lambda: self.edited.emit(self.alarm["id"]))
-        btn_layout.addWidget(edit_btn)
+        action_row.addWidget(edit_btn)
 
         # Delete button
-        del_btn = QPushButton("🗑️")
-        del_btn.setFixedSize(28, 28)
-        del_btn.setToolTip("删除闹钟")
+        del_btn = QPushButton("🗑️ 删除")
+        del_btn.setFixedHeight(30)
+        del_btn.setToolTip("删除此闹钟")
         del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        del_btn.setStyleSheet("border-radius: 6px; padding: 0;")
-        del_btn.clicked.connect(lambda: self.deleted.emit(self.alarm["id"]))
-        btn_layout.addWidget(del_btn)
-
-        layout.addLayout(btn_layout)
-
-        # Card appearance styling
-        self.setStyleSheet(f"""
-            QFrame#AlarmCard {{
-                background-color: {THEME['bg_card']};
-                border: 1px solid {THEME['border_light']};
-                border-radius: 12px;
-            }}
-            QFrame#AlarmCard:hover {{
-                border-color: rgba(56, 189, 248, 0.4);
-                background-color: {THEME['bg_card_hover']};
-            }}
+        del_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(239, 68, 68, 0.18);
+                color: #EF4444;
+                border: 1px solid rgba(239, 68, 68, 0.35);
+                border-radius: 6px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #EF4444;
+                color: #FFFFFF;
+            }
         """)
+        del_btn.clicked.connect(lambda: self.deleted.emit(self.alarm["id"]))
+        action_row.addWidget(del_btn)
+
+        detail_layout.addLayout(action_row)
+        card_layout.addWidget(self.detail_widget)
+
+        self._update_card_style()
+
+    def toggle_expanded(self):
+        self.set_expanded(not self.is_expanded)
+
+    def set_expanded(self, expanded: bool):
+        if self.is_expanded == expanded:
+            return
+        self.is_expanded = expanded
+        self.detail_widget.setVisible(expanded)
+        self.expand_btn.setText("收起 ∧" if expanded else "展开 ∨")
+        self._update_card_style()
+        self.updateGeometry()
+        self.expanded_changed.emit(self.alarm["id"], expanded)
+
+    def _update_card_style(self):
+        if self.is_expanded:
+            self.setStyleSheet(f"""
+                QFrame#AlarmCard {{
+                    background-color: #1A2135;
+                    border: 1.5px solid #38BDF8;
+                    border-radius: 12px;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#AlarmCard {{
+                    background-color: {THEME['bg_card']};
+                    border: 1px solid {THEME['border_light']};
+                    border-radius: 12px;
+                }}
+                QFrame#AlarmCard:hover {{
+                    border-color: rgba(56, 189, 248, 0.4);
+                    background-color: {THEME['bg_card_hover']};
+                }}
+            """)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            child = self.childAt(pos)
+            if child and child not in (self, self.expand_btn):
+                if isinstance(child, ToggleSwitch):
+                    super().mousePressEvent(event)
+                    return
+                if self.is_expanded and isinstance(child, (QPushButton, QComboBox, QCheckBox)):
+                    super().mousePressEvent(event)
+                    return
+            self.toggle_expanded()
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def _show_snooze_menu(self):
         menu = QMenu(self)
@@ -419,6 +568,8 @@ class AlarmTab(QWidget):
         # 2. Scrollable Alarm List Area
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -540,7 +691,16 @@ class AlarmTab(QWidget):
             card.cancel_snooze.connect(self._on_cancel_snooze)
             card.edited.connect(self._on_edit_alarm)
             card.deleted.connect(self._on_delete_alarm)
+            card.expanded_changed.connect(self._on_card_expanded)
             self.list_layout.insertWidget(self.list_layout.count() - 1, card)
+
+    def _on_card_expanded(self, alarm_id: str, is_expanded: bool):
+        if is_expanded:
+            for i in range(self.list_layout.count()):
+                item = self.list_layout.itemAt(i)
+                w = item.widget() if item else None
+                if isinstance(w, AlarmCard) and w.alarm.get("id") != alarm_id:
+                    w.set_expanded(False)
 
     def _on_toggle_alarm(self, alarm_id: str):
         storage.toggle_alarm_enabled(alarm_id)

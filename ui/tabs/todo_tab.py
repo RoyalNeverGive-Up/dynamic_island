@@ -21,34 +21,44 @@ class TaskCard(QFrame):
     toggled = pyqtSignal(str)   # todo_id
     edited = pyqtSignal(str)    # todo_id
     deleted = pyqtSignal(str)   # todo_id
+    expanded_changed = pyqtSignal(str, bool) # todo_id, is_expanded
 
     def __init__(self, todo: dict, parent=None):
         super().__init__(parent)
         self.todo = todo
+        self.is_expanded = False
         self.setObjectName("TaskCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._init_ui()
 
     def _init_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(10)
+        card_layout = QVBoxLayout(self)
+        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setSpacing(8)
 
-        # 1. Circular Checkbox (aligned top so it matches line 1 nicely)
+        is_completed = self.todo.get("completed", False)
+
+        # --- 1. Header Row (Always visible) ---
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(10)
+
+        # 1. Circular Checkbox
         self.cb = QCheckBox()
-        self.cb.setChecked(self.todo.get("completed", False))
+        self.cb.setChecked(is_completed)
         self.cb.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cb.setStyleSheet("margin-top: 2px;")
         self.cb.toggled.connect(lambda: self.toggled.emit(self.todo["id"]))
-        layout.addWidget(self.cb, 0, Qt.AlignmentFlag.AlignTop)
+        header_layout.addWidget(self.cb, 0, Qt.AlignmentFlag.AlignTop)
 
         # 2. Main Content
         info_layout = QVBoxLayout()
         info_layout.setSpacing(6)
 
-        # Row 1: Priority badge + Task Title (Title has full width & word-wraps, NEVER cut off!)
+        # Row 1: Priority badge + Task Title
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
-        title_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         prio = self.todo.get("priority", "medium")
         prio_info = PRIORITY_CONFIG.get(prio, PRIORITY_CONFIG["medium"])
@@ -60,21 +70,21 @@ class TaskCard(QFrame):
             font-weight: 700;
             padding: 2px 7px;
             border-radius: 6px;
+            min-height: 20px;
         """)
-        title_row.addWidget(prio_badge)
+        title_row.addWidget(prio_badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.title_lbl = QLabel(self.todo.get("title", ""))
-        self.title_lbl.setWordWrap(True)
+        self.title_lbl.setWordWrap(False)
         self.title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._apply_title_style()
-        title_row.addWidget(self.title_lbl, 1)
+        title_row.addWidget(self.title_lbl, 1, Qt.AlignmentFlag.AlignVCenter)
 
         info_layout.addLayout(title_row)
 
-        # Row 2: Badges (Category + Due Time / Countdown + Recurrence + Note preview)
+        # Row 2: Badges (Category + Due Time / Countdown + Recurrence)
         meta_row = QHBoxLayout()
         meta_row.setSpacing(6)
-        meta_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         # Category badge
         cat = self.todo.get("category", "默认")
@@ -86,6 +96,7 @@ class TaskCard(QFrame):
             font-weight: 600;
             padding: 2px 7px;
             border-radius: 6px;
+            min-height: 20px;
         """)
         meta_row.addWidget(cat_badge)
 
@@ -96,9 +107,9 @@ class TaskCard(QFrame):
                 due_dt = datetime.strptime(due, "%Y-%m-%d %H:%M")
                 diff = due_dt - datetime.now()
 
-                if self.todo.get("completed"):
+                if is_completed:
                     time_badge = QLabel(f"⏰ {due} (已完成)")
-                    time_badge.setStyleSheet("color: #64748B; font-size: 11px; font-weight: 500;")
+                    time_badge.setStyleSheet("color: #64748B; font-size: 11px; font-weight: 500; min-height: 20px;")
                 elif diff.total_seconds() < 0:
                     mins_over = int(abs(diff.total_seconds()) // 60)
                     time_badge = QLabel(f"⚠️ 超时 {mins_over}分 · {due}")
@@ -110,6 +121,7 @@ class TaskCard(QFrame):
                         font-weight: 700;
                         padding: 2px 7px;
                         border-radius: 6px;
+                        min-height: 20px;
                     """)
                 elif diff.total_seconds() < 3600:
                     mins_left = max(1, int(diff.total_seconds() // 60))
@@ -122,6 +134,7 @@ class TaskCard(QFrame):
                         font-weight: 700;
                         padding: 2px 7px;
                         border-radius: 6px;
+                        min-height: 20px;
                     """)
                 else:
                     time_badge = QLabel(f"⏰ {due}")
@@ -133,6 +146,7 @@ class TaskCard(QFrame):
                         font-weight: 700;
                         padding: 2px 7px;
                         border-radius: 6px;
+                        min-height: 20px;
                     """)
                 meta_row.addWidget(time_badge)
             except Exception:
@@ -150,49 +164,231 @@ class TaskCard(QFrame):
                 font-weight: 700;
                 padding: 2px 7px;
                 border-radius: 6px;
+                min-height: 20px;
             """)
             meta_row.addWidget(rep_badge)
-
-        # Description note snippet
-        desc = self.todo.get("description", "")
-        if desc:
-            desc_lbl = QLabel(f"📝 {desc[:20]}")
-            desc_lbl.setStyleSheet("color: #94A3B8; font-size: 11px;")
-            meta_row.addWidget(desc_lbl)
 
         meta_row.addStretch()
         info_layout.addLayout(meta_row)
 
-        layout.addLayout(info_layout, 1)
+        header_layout.addLayout(info_layout, 1)
 
-        # 3. Action Buttons (✏️ Edit, 🗑️ Delete)
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(4)
-        btn_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        # 3. Right Expand Indicator Pill
+        self.expand_btn = QPushButton("展开 ∨")
+        self.expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.expand_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                color: #94A3B8;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 12px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: rgba(56, 189, 248, 0.18);
+                color: #38BDF8;
+                border-color: rgba(56, 189, 248, 0.4);
+            }
+        """)
+        self.expand_btn.clicked.connect(self.toggle_expanded)
+        header_layout.addWidget(self.expand_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        edit_btn = QPushButton("✏️")
-        edit_btn.setFixedSize(28, 28)
-        edit_btn.setToolTip("编辑待办与时间")
+        card_layout.addWidget(header_widget)
+
+        # --- 2. Expanded Detail Panel (Hidden by default) ---
+        self.detail_widget = QWidget()
+        self.detail_widget.setVisible(False)
+        detail_layout = QVBoxLayout(self.detail_widget)
+        detail_layout.setContentsMargins(0, 4, 0, 0)
+        detail_layout.setSpacing(8)
+
+        # Details Box
+        details_box = QFrame()
+        details_box.setStyleSheet("""
+            QFrame {
+                background: rgba(0, 0, 0, 0.28);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+            }
+        """)
+        box_layout = QVBoxLayout(details_box)
+        box_layout.setContentsMargins(10, 8, 10, 8)
+        box_layout.setSpacing(6)
+
+        # Row 1: Attributes
+        attr_row = QHBoxLayout()
+        attr_row.setSpacing(12)
+
+        cat_lbl = QLabel(f"📁 分类: {cat}")
+        cat_lbl.setStyleSheet("color: #CBD5E1; font-size: 11px; font-weight: 600;")
+        attr_row.addWidget(cat_lbl)
+
+        due_lbl = QLabel(f"⏰ 截止: {due if due else '无指定时间'}")
+        due_lbl.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600;")
+        attr_row.addWidget(due_lbl)
+
+        prio_detail_lbl = QLabel(f"📌 级别: {prio_info['label']}")
+        prio_detail_lbl.setStyleSheet(f"color: {prio_info['color']}; font-size: 11px; font-weight: 700;")
+        attr_row.addWidget(prio_detail_lbl)
+
+        attr_row.addStretch()
+        box_layout.addLayout(attr_row)
+
+        if rep_desc:
+            rep_row = QHBoxLayout()
+            rep_full_lbl = QLabel(f"🔁 重复周期: {rep_desc}")
+            rep_full_lbl.setStyleSheet("color: #34D399; font-size: 11px; font-weight: 600;")
+            rep_row.addWidget(rep_full_lbl)
+            rep_row.addStretch()
+            box_layout.addLayout(rep_row)
+
+        # Row 2: Full Note / Description if present
+        desc = self.todo.get("description", "").strip()
+        if desc:
+            desc_lbl = QLabel(f"📝 待办备注: {desc}")
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setStyleSheet("color: #CBD5E1; font-size: 11px; line-height: 1.4;")
+            box_layout.addWidget(desc_lbl)
+
+        detail_layout.addWidget(details_box)
+
+        # Dedicated Action Button Row
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 4, 0, 0)
+        action_row.setSpacing(8)
+
+        # Complete / Reopen button
+        status_action_btn = QPushButton("↺ 设为待办" if is_completed else "✓ 标记完成")
+        status_action_btn.setFixedHeight(30)
+        status_action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        status_action_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(48, 209, 88, 0.2);
+                color: #30D158;
+                border: 1px solid rgba(48, 209, 88, 0.45);
+                border-radius: 6px;
+                padding: 4px 14px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #30D158;
+                color: #FFFFFF;
+            }
+        """)
+        status_action_btn.clicked.connect(lambda: self.toggled.emit(self.todo["id"]))
+        action_row.addWidget(status_action_btn)
+
+        action_row.addStretch()
+
+        # Edit button
+        edit_btn = QPushButton("✏️ 修改")
+        edit_btn.setFixedHeight(30)
+        edit_btn.setToolTip("编辑待办标题、时间与分类")
         edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        edit_btn.setStyleSheet("border-radius: 6px; padding: 0;")
+        edit_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(56, 189, 248, 0.18);
+                color: #38BDF8;
+                border: 1px solid rgba(56, 189, 248, 0.4);
+                border-radius: 6px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #38BDF8;
+                color: #000000;
+            }
+        """)
         edit_btn.clicked.connect(lambda: self.edited.emit(self.todo["id"]))
-        btn_layout.addWidget(edit_btn)
+        action_row.addWidget(edit_btn)
 
-        del_btn = QPushButton("🗑️")
-        del_btn.setFixedSize(28, 28)
-        del_btn.setToolTip("删除待办")
+        # Delete button
+        del_btn = QPushButton("🗑️ 删除")
+        del_btn.setFixedHeight(30)
+        del_btn.setToolTip("删除此待办事项")
         del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        del_btn.setStyleSheet("border-radius: 6px; padding: 0;")
+        del_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(239, 68, 68, 0.18);
+                color: #EF4444;
+                border: 1px solid rgba(239, 68, 68, 0.35);
+                border-radius: 6px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #EF4444;
+                color: #FFFFFF;
+            }
+        """)
         del_btn.clicked.connect(lambda: self.deleted.emit(self.todo["id"]))
-        btn_layout.addWidget(del_btn)
+        action_row.addWidget(del_btn)
 
-        layout.addLayout(btn_layout)
+        detail_layout.addLayout(action_row)
+        card_layout.addWidget(self.detail_widget)
+
+        self._update_card_style()
+
+    def toggle_expanded(self):
+        self.set_expanded(not self.is_expanded)
+
+    def set_expanded(self, expanded: bool):
+        if self.is_expanded == expanded:
+            return
+        self.is_expanded = expanded
+        self.detail_widget.setVisible(expanded)
+        self.expand_btn.setText("收起 ∧" if expanded else "展开 ∨")
+        self._update_card_style()
+        self.expanded_changed.emit(self.todo["id"], expanded)
+
+    def _update_card_style(self):
+        if self.is_expanded:
+            self.setStyleSheet(f"""
+                QFrame#TaskCard {{
+                    background-color: #1A2135;
+                    border: 1.5px solid #38BDF8;
+                    border-radius: 12px;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#TaskCard {{
+                    background-color: {THEME['bg_card']};
+                    border: 1px solid {THEME['border_light']};
+                    border-radius: 12px;
+                }}
+                QFrame#TaskCard:hover {{
+                    border-color: rgba(56, 189, 248, 0.4);
+                    background-color: {THEME['bg_card_hover']};
+                }}
+            """)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            child = self.childAt(pos)
+            if child and child not in (self, self.expand_btn):
+                if isinstance(child, QCheckBox):
+                    super().mousePressEvent(event)
+                    return
+                if self.is_expanded and isinstance(child, (QPushButton, QComboBox)):
+                    super().mousePressEvent(event)
+                    return
+            self.toggle_expanded()
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def _apply_title_style(self):
         if self.todo.get("completed"):
-            self.title_lbl.setStyleSheet("color: #64748B; font-size: 13px; text-decoration: line-through; line-height: 1.3;")
+            self.title_lbl.setStyleSheet("color: #64748B; font-size: 14px; text-decoration: line-through; min-height: 24px; padding: 1px 0px;")
         else:
-            self.title_lbl.setStyleSheet("color: #FFFFFF; font-weight: 600; font-size: 13px; text-decoration: none; line-height: 1.3;")
+            self.title_lbl.setStyleSheet("color: #FFFFFF; font-weight: 600; font-size: 14px; text-decoration: none; min-height: 24px; padding: 1px 0px;")
 
 
 class TodoTab(QWidget):
@@ -353,6 +549,8 @@ class TodoTab(QWidget):
         # 4. Scrollable List Area (Now gets 380px+ vertical height!)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -569,7 +767,16 @@ class TodoTab(QWidget):
             card.toggled.connect(self._on_toggle_todo)
             card.edited.connect(self._on_edit_todo)
             card.deleted.connect(self._on_delete_todo)
+            card.expanded_changed.connect(self._on_card_expanded)
             self.list_layout.insertWidget(self.list_layout.count() - 1, card)
+
+    def _on_card_expanded(self, todo_id: str, is_expanded: bool):
+        if is_expanded:
+            for i in range(self.list_layout.count()):
+                item = self.list_layout.itemAt(i)
+                w = item.widget() if item else None
+                if isinstance(w, TaskCard) and w.todo.get("id") != todo_id:
+                    w.set_expanded(False)
 
     def _on_toggle_todo(self, todo_id: str):
         storage.toggle_todo(todo_id)

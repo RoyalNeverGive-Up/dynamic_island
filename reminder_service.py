@@ -10,12 +10,36 @@ except ImportError:
     winsound = None
 
 
+def is_windows_screen_locked() -> bool:
+    """
+    Check if Windows screen is currently locked (via Win+L, lock screen, screensaver or secure desktop).
+    Returns True if locked, False otherwise.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        # OpenInputDesktop fails with ERROR_ACCESS_DENIED (5) or non-default name when workstation is locked
+        hdesk = user32.OpenInputDesktop(0, False, 0x0100)  # DESKTOP_SWITCHDESKTOP = 0x0100
+        if not hdesk:
+            return True
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetUserObjectInformationW(hdesk, 2, buf, 256, None)  # UOI_NAME = 2
+        name = buf.value.lower()
+        user32.CloseDesktop(hdesk)
+        return name != "default"
+    except Exception:
+        return False
+
+
 class ReminderService(QObject):
     reminder_triggered = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._start_time = datetime.now()
+        self._session_locked = False
         self._last_alerted_alarm_keys = set()  # (alarm_id, minute_str)
         self._catchup_overdue_on_startup()
         self.timer = QTimer(self)
@@ -91,7 +115,22 @@ class ReminderService(QObject):
         if todos_modified:
             storage.save_todos(todos)
 
+    def is_screen_locked(self) -> bool:
+        """Returns True if the workstation/screen is currently locked or in lock screen."""
+        settings = storage.get_settings()
+        if not settings.get("mute_on_lock", True):
+            return False
+        if getattr(self, "_session_locked", False):
+            return True
+        return is_windows_screen_locked()
+
+    def set_screen_locked(self, locked: bool):
+        """Update session lock state (e.g. from WM_WTSSESSION_CHANGE)."""
+        self._session_locked = bool(locked)
+
     def _play_chime(self):
+        if self.is_screen_locked():
+            return
         settings = storage.get_settings()
         if not settings.get("sound_enabled", True) or not winsound:
             return
@@ -106,6 +145,10 @@ class ReminderService(QObject):
                 pass
 
     def _check_reminders(self):
+        # Do not trigger or chime when screen is locked
+        if self.is_screen_locked():
+            return
+
         now = datetime.now()
         now_minute_str = now.strftime("%Y-%m-%d %H:%M")
 

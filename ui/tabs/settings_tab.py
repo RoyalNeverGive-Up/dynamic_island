@@ -77,6 +77,12 @@ class SettingsTab(QWidget):
         self.sound_cb.toggled.connect(lambda v: self._update_setting("sound_enabled", v))
         gen_layout.addWidget(self.sound_cb)
 
+        # Mute on lock
+        self.lock_mute_cb = QCheckBox("锁屏时暂停触发提醒与响铃 (解锁后自动恢复)")
+        self.lock_mute_cb.setChecked(settings.get("mute_on_lock", True))
+        self.lock_mute_cb.toggled.connect(lambda v: self._update_setting("mute_on_lock", v))
+        gen_layout.addWidget(self.lock_mute_cb)
+
         # CPU in compact
         self.cpu_cb = QCheckBox("在胶囊栏中显示实时 CPU 监控角标")
         self.cpu_cb.setChecked(settings.get("compact_show_cpu", True))

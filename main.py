@@ -171,6 +171,7 @@ def main():
 
         # Create Island Window
         island = IslandWindow(system_monitor, music_service)
+        island.set_reminder_service(reminder_service)
         island.show()
 
         # Connect Reminder Engine to Island Alert Banner

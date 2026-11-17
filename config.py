@@ -25,8 +25,8 @@ ALERT_WIDTH = 420
 ALERT_HEIGHT = 76
 ALERT_RADIUS = 22
 
-EXPANDED_WIDTH = 480
-EXPANDED_HEIGHT = 640
+EXPANDED_WIDTH = 560
+EXPANDED_HEIGHT = 650
 EXPANDED_RADIUS = 24
 
 # Default Settings
@@ -40,6 +40,7 @@ DEFAULT_SETTINGS = {
     "compact_show_cpu": True,
     "compact_show_time": True,
     "auto_collapse": False,
+    "mute_on_lock": True,
     "theme_opacity": 0.95,
     "music_volume": 70,
 }

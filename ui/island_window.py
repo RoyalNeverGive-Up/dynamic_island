@@ -1,3 +1,4 @@
+import sys
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QGraphicsDropShadowEffect, QApplication, QDialog
 )
@@ -53,6 +54,15 @@ class IslandWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet(MAIN_STYLE)
+
+        # Register for Windows Session Lock/Unlock Notifications
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                hwnd = int(self.winId())
+                ctypes.windll.wtsapi32.WTSRegisterSessionNotification(hwnd, 0)
+            except Exception:
+                pass
 
     def _init_ui(self):
         master_layout = QVBoxLayout(self)
@@ -405,3 +415,41 @@ class IslandWindow(QWidget):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def set_reminder_service(self, service):
+        self.reminder_service = service
+
+    def nativeEvent(self, eventType, message):
+        if eventType == b"windows_generic_MSG" and sys.platform == "win32":
+            try:
+                import ctypes
+                import ctypes.wintypes
+                msg = ctypes.wintypes.MSG.from_address(int(message))
+                if msg.message == 0x02B1:  # WM_WTSSESSION_CHANGE
+                    # WTS_SESSION_LOCK (0x7) or WTS_SESSION_LOGOFF (0x6)
+                    if msg.wParam in (0x7, 0x6):
+                        if hasattr(self, "reminder_service") and self.reminder_service:
+                            self.reminder_service.set_screen_locked(True)
+                        if hasattr(self, "_active_reminder_dlg") and self._active_reminder_dlg:
+                            try:
+                                self._active_reminder_dlg._on_auto_timeout()
+                            except Exception:
+                                pass
+                    # WTS_SESSION_UNLOCK (0x8) or WTS_SESSION_LOGON (0x5)
+                    elif msg.wParam in (0x8, 0x5):
+                        if hasattr(self, "reminder_service") and self.reminder_service:
+                            self.reminder_service.set_screen_locked(False)
+                            self.reminder_service._check_reminders()
+            except Exception:
+                pass
+        return False, 0
+
+    def closeEvent(self, event):
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                hwnd = int(self.winId())
+                ctypes.windll.wtsapi32.WTSUnRegisterSessionNotification(hwnd)
+            except Exception:
+                pass
+        super().closeEvent(event)
