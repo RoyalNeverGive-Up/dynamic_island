@@ -15,6 +15,7 @@ VENV_DIR = BASE_DIR / ".venv"
 REQUIRED_PACKAGES = {
     "PyQt6": "PyQt6>=6.5.0",
     "psutil": "psutil>=5.9.0",
+    "mutagen": "mutagen>=1.47.0",
 }
 
 PIP_MIRRORS = [

@@ -85,7 +85,7 @@ sys.excepthook = global_exception_hook
 # Pre-flight check: ensure third-party dependencies are installed before importing them
 def _ensure_dependencies():
     missing = []
-    for pkg in ["PyQt6", "psutil"]:
+    for pkg in ["PyQt6", "psutil", "mutagen"]:
         try:
             __import__(pkg)
         except ImportError:
